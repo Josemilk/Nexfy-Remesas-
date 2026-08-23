@@ -1,0 +1,7 @@
+{
+  "name": "NexFy Remesas",
+  "description": "Aplicación completa de gestión de remesas y entregas con mapas offline, PIN de seguridad, clientes e historial.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
