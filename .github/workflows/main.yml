@@ -25,12 +25,21 @@ jobs:
           gradle-version: '9.3.1'
           cache-disabled: true
 
-      - name: Reparar gradle-wrapper
+      - name: Reparar wrapper y firma
         run: |
           rm -f gradle/wrapper/gradle-wrapper.jar
           gradle wrapper --gradle-version 9.3.1
           chmod +x ./gradlew
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+          # Esto borra tu firma rota y pone la debug buena
+          sed -i 's/signingConfigs.getByName("debugConfig")/signingConfigs.getByName("debug")/g' app/build.gradle.kts
+          sed -i 's/signingConfig = signingConfigs.getByName("debugConfig")/signingConfig = signingConfigs.getByName("debug")/g' app/build.gradle.kts
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nexfy-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
