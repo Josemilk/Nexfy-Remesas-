@@ -1,16 +1,25 @@
-name: Build APK
+name: Build NexFy APK with OsmAnd
 
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 45
 
-      - name: Setup Java
+    steps:
+      - name: Checkout repo with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -19,27 +28,33 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle 9.3.1
+      - name: Install NDK & Build Tools
+        run: |
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.3.1'
-          cache-disabled: true
+          gradle-version: '8.9'
+          cache-disabled: false
 
-      - name: Reparar wrapper y firma
+      - name: Fix Gradle Wrapper & Properties
         run: |
-          rm -f gradle/wrapper/gradle-wrapper.jar
-          gradle wrapper --gradle-version 9.3.1
           chmod +x ./gradlew
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          # Esto borra tu firma rota y pone la debug buena
-          sed -i 's/signingConfigs.getByName("debugConfig")/signingConfigs.getByName("debug")/g' app/build.gradle.kts
-          sed -i 's/signingConfig = signingConfigs.getByName("debugConfig")/signingConfig = signingConfigs.getByName("debug")/g' app/build.gradle.kts
+          echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build Debug APK (Fat + Legacy)
+        run: ./gradlew :app:assembleFatLegacyDebug --no-daemon --stacktrace
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_NDK }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
-      - name: Subir APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexfy-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Nexfy-OsmAnd-APK
+          path: app/build/outputs/apk/fat/legacy/debug/app-fat-legacy-debug.apk
+          retention-days: 7

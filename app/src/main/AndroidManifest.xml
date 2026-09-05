@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- NexFy Permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
@@ -11,9 +12,33 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- OsmAnd Required Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_LOCATION_EXTRA_COMMANDS" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
+        android:name="net.osmand.plus.OsmandApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -21,13 +46,18 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MyApplication">
+        android:theme="@style/Theme.MyApplication"
+        android:largeHeap="true"
+        android:hardwareAccelerated="true"
+        tools:replace="android:theme,android:label,android:name">
 
+        <!-- NexFy Location Service -->
         <service
             android:name="com.example.service.LocationService"
             android:foregroundServiceType="location"
             android:exported="false" />
 
+        <!-- File Provider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,6 +68,7 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- NexFy Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,7 +76,6 @@
             android:theme="@style/Theme.MyApplication">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <intent-filter>
@@ -54,16 +84,34 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="geo" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" android:host="maps.google.com" />
-                <data android:scheme="https" android:host="maps.google.com" />
-                <data android:scheme="http" android:host="goo.gl" />
-                <data android:scheme="https" android:host="goo.gl" />
-            </intent-filter>
         </activity>
-    </application>
 
+        <!-- OsmAnd Map Activity -->
+        <activity
+            android:name="net.osmand.plus.activities.MapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize" />
+
+        <!-- OsmAnd Required Activities & Services (merged from OsmAnd manifest) -->
+        <activity
+            android:name="net.osmand.plus.download.DownloadActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication" />
+
+        <activity
+            android:name="net.osmand.plus.settings.backend.backup.SettingsBackupHelper$SettingsExportActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MyApplication" />
+
+        <service
+            android:name="net.osmand.plus.NavigationService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
+        <service
+            android:name="net.osmand.plus.download.DownloadService"
+            android:exported="false" />
+
+    </application>
 </manifest>
