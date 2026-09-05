@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "273681760907",
+    "firebase_url": "https://nexfy-remesas-default-rtdb.firebaseio.com",
+    "project_id": "nexfy-remesas",
+    "storage_bucket": "nexfy-remesas.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:273681760907:android:2576f474805d620a830a8e",
+        "android_client_info": {
+          "package_name": "com.aistudio.nexfyremesas.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "273681760907-qa2c29jdk9gaik5krg4611ki068scr32.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA20FopVlBsc3o1m9W3nNiWdmwMH446K1s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "273681760907-qa2c29jdk9gaik5krg4611ki068scr32.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
