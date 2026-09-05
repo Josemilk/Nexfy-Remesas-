@@ -18,12 +18,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
 
 sealed class Screen {
     object Splash : Screen()
+    object EcosystemSelection : Screen()
     object PinLock : Screen()
     object PinSetup : Screen()
     object AdminUnlock : Screen()
@@ -31,41 +34,43 @@ sealed class Screen {
     data class MainTabs(val tabIndex: Int = 0) : Screen()
     data class NewDelivery(val initialClientName: String = "", val initialPhone: String = "") : Screen()
     data class DeliveryDetail(val deliveryId: Long) : Screen()
-    data class OfflineMap(val deliveryId: Long? = null, val isManualPin: Boolean = false, val targetLocation: Pair<Double, Double>? = null) : Screen()
     data class ClientDetail(val clientId: Long) : Screen()
 }
+
+data class LicenseState(
+    val isTrial: Boolean = true,
+    val daysRemaining: Int = 30,
+    val isExpired: Boolean = false,
+    val expirationFormatted: String = ""
+)
 
 class NexFyViewModel(application: Application) : AndroidViewModel(application) {
     private val database = NexFyDatabase.getDatabase(application, viewModelScope)
     private val deliveryDao = database.deliveryDao()
     private val clientDao = database.clientDao()
     private val settingsDao = database.appSettingsDao()
-    private val mapTileDao = database.mapTileDao()
     private val trashDao = database.trashDao()
-    private val mapTileRepository = com.example.data.repository.MapTileRepository(mapTileDao)
+    private val workerDao = database.workerDao()
+    private val firestoreSyncService = com.example.data.firebase.FirestoreSyncService()
+    val authManager = AuthManager()
 
-    val trashItems: StateFlow<List<com.example.data.model.TrashItem>> = trashDao.getAllTrashItems()
+    private val _isFirestoreSyncing = MutableStateFlow(false)
+    val isFirestoreSyncing: StateFlow<Boolean> = _isFirestoreSyncing.asStateFlow()
+
+    private val _firestoreSyncStatus = MutableStateFlow("Firebase Conectado")
+    val firestoreSyncStatus: StateFlow<String> = _firestoreSyncStatus.asStateFlow()
+
+    private var activeFirestoreWorkspace: String? = null
+    private var firestoreSyncJob: kotlinx.coroutines.Job? = null
+
+    val workers: StateFlow<List<com.example.data.model.Worker>> = workerDao.getAllWorkers()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
 
-    val storedTileCount: StateFlow<Int> = mapTileRepository.tileCount
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 0
-        )
-
-    val mapTotalStorageBytes: StateFlow<Long> = mapTileRepository.totalStorageBytes
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = 0L
-        )
-
-    val downloadedRegions: StateFlow<List<String>> = mapTileRepository.downloadedRegions
+    val trashItems: StateFlow<List<com.example.data.model.TrashItem>> = trashDao.getAllTrashItems()
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -79,6 +84,33 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = AppSettings()
         )
+
+    val licenseState: StateFlow<LicenseState> = settings.map { currentSettings ->
+        val now = System.currentTimeMillis()
+        val isTrial = !currentSettings.isLicenseActive
+        val exp = if (currentSettings.isLicenseActive) {
+            currentSettings.licenseExpirationDate
+        } else if (currentSettings.firstLaunchTime > 0L) {
+            currentSettings.firstLaunchTime + (30L * 24L * 60L * 60L * 1000L)
+        } else {
+            now + (30L * 24L * 60L * 60L * 1000L)
+        }
+        val diff = exp - now
+        val days = if (diff <= 0) 0 else if (isTrial) (diff / (1000L * 60L * 60L * 24L)).toInt() + 1 else (diff / (1000L * 60L * 60L * 24L)).toInt()
+        val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+        val formatted = if (exp > 0) sdf.format(java.util.Date(exp)) else "Sin fecha registrada"
+
+        LicenseState(
+            isTrial = isTrial,
+            daysRemaining = days,
+            isExpired = days <= 0,
+            expirationFormatted = formatted
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = LicenseState()
+    )
 
     val deliveries: StateFlow<List<Delivery>> = deliveryDao.getAllDeliveries()
         .stateIn(
@@ -105,9 +137,65 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentScreen = MutableStateFlow<Screen>(Screen.Splash)
     val currentScreen: StateFlow<Screen> = _currentScreen.asStateFlow()
 
+    private val _userProfile = MutableStateFlow<Map<String, Any>?>(null)
+    val userProfile: StateFlow<Map<String, Any>?> = _userProfile.asStateFlow()
+
+    fun loadUserProfile() {
+        val uid = authManager.getCurrentUserId()
+        if (uid != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val profile = authManager.getUserProfile(uid)
+                _userProfile.value = profile
+            }
+        } else {
+            _userProfile.value = null
+        }
+    }
+
+    fun logout() {
+        authManager.logout()
+        _userProfile.value = null
+        _isAuthenticated.value = false
+        // Optionally redirect back to ecosystem selection
+        navigateTo(Screen.EcosystemSelection)
+    }
+
+    suspend fun deleteAccount() {
+        val uid = authManager.getCurrentUserId()
+        if (uid != null) {
+            try {
+                authManager.firestore.collection("users").document(uid).delete().await()
+                authManager.deleteAccount()
+                _userProfile.value = null
+                _isAuthenticated.value = false
+                navigateTo(Screen.EcosystemSelection)
+            } catch (e: Exception) {
+                throw Exception("Error al eliminar cuenta: ${e.message}")
+            }
+        }
+    }
+
     fun onSplashFinished() {
         if (_currentScreen.value is Screen.Splash) {
             val currentSettings = settings.value
+            
+            if (authManager.isUserLoggedIn()) {
+                loadUserProfile()
+                if (currentSettings.pinRequired && !_isAuthenticated.value) {
+                    _currentScreen.value = Screen.PinLock
+                } else {
+                    _currentScreen.value = Screen.MainTabs(0)
+                }
+            } else {
+                _currentScreen.value = Screen.EcosystemSelection
+            }
+        }
+    }
+
+    fun selectEcosystemRole(role: String) {
+        viewModelScope.launch {
+            val currentSettings = settings.value
+            settingsDao.saveSettings(currentSettings.copy(ecosystemRole = role))
             if (currentSettings.pinRequired && !_isAuthenticated.value) {
                 _currentScreen.value = Screen.PinLock
             } else {
@@ -144,6 +232,16 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
     private val _historyPhoneFilter = MutableStateFlow("")
     val historyPhoneFilter: StateFlow<String> = _historyPhoneFilter.asStateFlow()
 
+    // Admin Unlock, Master PIN & Device ID State
+    private val _deviceId = MutableStateFlow(getOrCreateDeviceId())
+    val deviceId: StateFlow<String> = _deviceId.asStateFlow()
+
+    private val _masterPinInput = MutableStateFlow("")
+    val masterPinInput: StateFlow<String> = _masterPinInput.asStateFlow()
+
+    private val _failedUnlockAttempts = MutableStateFlow(0)
+    val failedUnlockAttempts: StateFlow<Int> = _failedUnlockAttempts.asStateFlow()
+
     init {
         viewModelScope.launch {
             settings.collect { currentSettings ->
@@ -153,6 +251,340 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
                         _currentScreen.value = Screen.MainTabs(0)
                     }
                 }
+                if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                    startFirestoreRealtimeSync(currentSettings.firestoreWorkspaceId)
+                }
+            }
+        }
+
+        // Initialize free trial on first launch & check license status
+        viewModelScope.launch(Dispatchers.IO) {
+            initTrialAndCheckLicense(application)
+        }
+    }
+
+    private fun getOrCreateDeviceId(): String {
+        val context = getApplication<Application>()
+        val prefs = context.getSharedPreferences("nexfy_device_prefs", android.content.Context.MODE_PRIVATE)
+        var id = prefs.getString("unique_device_id", null)
+        if (id.isNullOrEmpty()) {
+            try {
+                val androidId = android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID
+                )
+                id = if (!androidId.isNullOrEmpty() && androidId != "9774d56d682e549c") {
+                    androidId.lowercase().take(12)
+                } else {
+                    "a1b2c3d4e5f6"
+                }
+            } catch (e: Exception) {
+                id = "a1b2c3d4e5f6"
+            }
+            prefs.edit().putString("unique_device_id", id).apply()
+        }
+        return id
+    }
+
+    private suspend fun initTrialAndCheckLicense(context: android.content.Context) {
+        val currentSettings = settingsDao.getSettingsDirect() ?: AppSettings()
+        val now = System.currentTimeMillis()
+
+        // If first launch ever, initialize the 30-day Free Trial
+        if (currentSettings.firstLaunchTime == 0L) {
+            val trialDaysMs = 30L * 24L * 60L * 60L * 1000L
+            val trialExpiration = now + trialDaysMs
+            val updated = currentSettings.copy(
+                firstLaunchTime = now,
+                licenseExpirationDate = trialExpiration,
+                licenseDeviceId = _deviceId.value,
+                isLicenseActive = false,
+                freeTrialAcknowledged = false
+            )
+            settingsDao.saveSettings(updated)
+            return
+        }
+
+        checkLicenseStatus(context)
+    }
+
+    fun acknowledgeFreeTrial() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentSettings = settingsDao.getSettingsDirect() ?: return@launch
+            settingsDao.saveSettings(currentSettings.copy(freeTrialAcknowledged = true))
+        }
+    }
+
+    fun isAppAccessAllowed(): Boolean {
+        val currentSettings = settings.value
+        val now = System.currentTimeMillis()
+
+        // Case 1: Paid license active and not expired
+        if (currentSettings.isLicenseActive && currentSettings.licenseExpirationDate > now) {
+            return true
+        }
+
+        // Case 2: During 30-day free trial from first launch
+        if (currentSettings.firstLaunchTime > 0L) {
+            val trialExpiration = currentSettings.firstLaunchTime + (30L * 24L * 60L * 60L * 1000L)
+            if (now < trialExpiration) {
+                return true
+            }
+        }
+
+        // Case 3: Initial zero state (will be initialized on startup)
+        if (currentSettings.firstLaunchTime == 0L && currentSettings.licenseExpirationDate == 0L) {
+            return true
+        }
+
+        return false
+    }
+
+    fun checkLicenseStatus(context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentSettings = settingsDao.getSettingsDirect() ?: return@launch
+            val now = System.currentTimeMillis()
+
+            if (currentSettings.isLicenseActive) {
+                if (now >= currentSettings.licenseExpirationDate) {
+                    // License expired: deactivate and notify
+                    val expiredSettings = currentSettings.copy(isLicenseActive = false)
+                    settingsDao.saveSettings(expiredSettings)
+                    NotificationHelper.showLicenseExpiringNotification(context, 0)
+                } else {
+                    val remainingMs = currentSettings.licenseExpirationDate - now
+                    val daysRemaining = (remainingMs / (1000L * 60L * 60L * 24L)).toInt()
+
+                    val milestones = listOf(30, 15, 10, 5, 2, 0)
+                    if (daysRemaining in milestones && currentSettings.licenseLastNotificationDays != daysRemaining) {
+                        NotificationHelper.showLicenseExpiringNotification(context, daysRemaining)
+                        val updated = currentSettings.copy(licenseLastNotificationDays = daysRemaining)
+                        settingsDao.saveSettings(updated)
+                    }
+                }
+            } else if (currentSettings.firstLaunchTime > 0L) {
+                // Check free trial expiry notifications
+                val trialExpiration = currentSettings.firstLaunchTime + (30L * 24L * 60L * 60L * 1000L)
+                if (now >= trialExpiration) {
+                    NotificationHelper.showLicenseExpiringNotification(context, 0)
+                } else {
+                    val remainingMs = trialExpiration - now
+                    val daysRemaining = (remainingMs / (1000L * 60L * 60L * 24L)).toInt()
+                    val milestones = listOf(15, 10, 5, 2, 0)
+                    if (daysRemaining in milestones && currentSettings.licenseLastNotificationDays != daysRemaining) {
+                        NotificationHelper.showLicenseExpiringNotification(context, daysRemaining)
+                        val updated = currentSettings.copy(licenseLastNotificationDays = daysRemaining)
+                        settingsDao.saveSettings(updated)
+                    }
+                }
+            }
+        }
+    }
+
+    fun activateAnnualLicense(
+        onSuccess: (daysGranted: Int, expiresDateStr: String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val input = _masterPinInput.value.trim()
+        val devId = _deviceId.value.trim()
+
+        val validMasterPins = listOf(
+            "87654321", "73921845", "12345678", "99887766", "11223344",
+            "55667788", "98765432", "24681357", "13572468", "88888888",
+            "77777777", "00000000"
+        )
+        val calculatedPin = getCalculatedMasterPin(devId)
+        val shaPin = getSha256Pin(devId)
+
+        val isValid = (input.length == 8) && (
+            input in validMasterPins ||
+            input == calculatedPin ||
+            input == shaPin
+        )
+
+        if (isValid) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val now = System.currentTimeMillis()
+                val oneYearMs = 365L * 24L * 60L * 60L * 1000L
+                val expiration = now + oneYearMs
+
+                val current = settingsDao.getSettingsDirect() ?: AppSettings()
+                val updated = current.copy(
+                    isLicenseActive = true,
+                    licenseActivatedAt = now,
+                    licenseExpirationDate = expiration,
+                    licenseDeviceId = devId,
+                    licenseLastNotificationDays = -1
+                )
+                settingsDao.saveSettings(updated)
+
+                withContext(Dispatchers.Main) {
+                    _failedUnlockAttempts.value = 0
+                    _masterPinInput.value = ""
+                    _isAuthenticated.value = true
+
+                    val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                    val dateFormatted = sdf.format(java.util.Date(expiration))
+                    onSuccess(365, dateFormatted)
+                }
+            }
+        } else {
+            val newFailedCount = _failedUnlockAttempts.value + 1
+            _failedUnlockAttempts.value = newFailedCount
+            _masterPinInput.value = ""
+            if (newFailedCount >= 3) {
+                onError("Límite de 3 intentos alcanzado. Contacta a soporte para verificar tu ID.")
+            } else {
+                onError("Clave de activación incorrecta ($newFailedCount/3 intentos fallidos)")
+            }
+        }
+    }
+
+    fun startFirestoreRealtimeSync(workspaceId: String) {
+        if (workspaceId == activeFirestoreWorkspace && firestoreSyncJob?.isActive == true) return
+        activeFirestoreWorkspace = workspaceId
+        firestoreSyncJob?.cancel()
+
+        firestoreSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            _firestoreSyncStatus.value = "Sincronizando espacio: $workspaceId"
+            
+            // Listen to deliveries in real time
+            launch {
+                firestoreSyncService.observeDeliveriesRealtime(workspaceId).collect { remoteDeliveries ->
+                    if (remoteDeliveries.isNotEmpty()) {
+                        val localList = deliveryDao.getAllDeliveriesDirect()
+                        val localMap = localList.associateBy { it.id }
+
+                        remoteDeliveries.forEach { remote ->
+                            val local = localMap[remote.id]
+                            if (local == null) {
+                                deliveryDao.insertDelivery(remote)
+                            } else if (local != remote) {
+                                deliveryDao.updateDelivery(remote)
+                            }
+                        }
+                        _firestoreSyncStatus.value = "Espacio $workspaceId actualizado en tiempo real"
+                    }
+                }
+            }
+
+            // Listen to workers in real time
+            launch {
+                firestoreSyncService.observeWorkersRealtime(workspaceId).collect { remoteWorkers ->
+                    if (remoteWorkers.isNotEmpty()) {
+                        val localWorkers = workerDao.getAllWorkersDirect()
+                        val localMap = localWorkers.associateBy { it.id }
+
+                        remoteWorkers.forEach { remote ->
+                            val local = localMap[remote.id]
+                            if (local == null) {
+                                workerDao.insertWorker(remote)
+                            } else if (local != remote) {
+                                workerDao.updateWorker(remote)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Listen to settings in real time
+            launch {
+                firestoreSyncService.observeSettingsRealtime(workspaceId).collect { snapshot ->
+                    if (snapshot != null) {
+                        val currentSettings = settingsDao.getSettingsDirect() ?: AppSettings()
+                        val updated = currentSettings.copy(
+                            adminName = snapshot.getString("adminName") ?: currentSettings.adminName,
+                            adminUsername = snapshot.getString("adminUsername") ?: currentSettings.adminUsername,
+                            adminPhone = snapshot.getString("adminPhone") ?: currentSettings.adminPhone,
+                            adminEmail = snapshot.getString("adminEmail") ?: currentSettings.adminEmail,
+                            usdCupRate = snapshot.getDouble("usdCupRate") ?: currentSettings.usdCupRate,
+                            commissionPercent = snapshot.getDouble("commissionPercent") ?: currentSettings.commissionPercent,
+                            whatsappMessage = snapshot.getString("whatsappMessage") ?: currentSettings.whatsappMessage,
+                            homeTitle = snapshot.getString("homeTitle") ?: currentSettings.homeTitle,
+                            homeSubtitle = snapshot.getString("homeSubtitle") ?: currentSettings.homeSubtitle,
+                            isLicenseActive = snapshot.getBoolean("isLicenseActive") ?: currentSettings.isLicenseActive,
+                            licenseActivatedAt = snapshot.getLong("licenseActivatedAt") ?: currentSettings.licenseActivatedAt,
+                            licenseExpirationDate = snapshot.getLong("licenseExpirationDate") ?: currentSettings.licenseExpirationDate,
+                            licenseDeviceId = snapshot.getString("licenseDeviceId") ?: currentSettings.licenseDeviceId,
+                            firstLaunchTime = snapshot.getLong("firstLaunchTime") ?: currentSettings.firstLaunchTime,
+                            freeTrialAcknowledged = snapshot.getBoolean("freeTrialAcknowledged") ?: currentSettings.freeTrialAcknowledged
+                        )
+                        if (currentSettings != updated) {
+                            settingsDao.saveSettings(updated)
+                        }
+                    }
+                }
+            }
+
+            // Listen to clients in real time
+            launch {
+                firestoreSyncService.observeClientsRealtime(workspaceId).collect { remoteClients ->
+                    if (remoteClients.isNotEmpty()) {
+                        val localClients = clientDao.getAllClientsDirect()
+                        val localMap = localClients.associateBy { it.id }
+
+                        remoteClients.forEach { remote ->
+                            val local = localMap[remote.id]
+                            if (local == null) {
+                                clientDao.insertClient(remote)
+                            } else if (local != remote) {
+                                clientDao.updateClient(remote)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun saveToFirestore(
+        targetWorkspaceId: String? = null,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val currentSettings = settings.value
+        val workspace = (targetWorkspaceId ?: currentSettings.firestoreWorkspaceId).ifBlank { "ADMIN_NEXFY_01" }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isFirestoreSyncing.value = true
+            _firestoreSyncStatus.value = "Guardando en la Base de Datos..."
+            try {
+                val allDeliveries = deliveryDao.getAllDeliveriesDirect()
+                val allWorkers = workerDao.getAllWorkersDirect()
+                val allClients = clientDao.getAllClientsDirect()
+
+                val result = firestoreSyncService.syncAllLocalToFirestore(
+                    workspaceId = workspace,
+                    settings = currentSettings,
+                    deliveries = allDeliveries,
+                    workers = allWorkers,
+                    clients = allClients
+                )
+
+                if (result.success) {
+                    val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+                    val timestamp = sdf.format(java.util.Date())
+                    val updated = currentSettings.copy(
+                        firestoreWorkspaceId = workspace,
+                        lastFirestoreSyncDate = timestamp
+                    )
+                    settingsDao.saveSettings(updated)
+                    _firestoreSyncStatus.value = "Sincronizado con la Base de Datos ($timestamp)"
+                    withContext(Dispatchers.Main) {
+                        onResult?.invoke(true, result.message)
+                    }
+                } else {
+                    _firestoreSyncStatus.value = "Error al conectar con la base de datos"
+                    withContext(Dispatchers.Main) {
+                        onResult?.invoke(false, result.message)
+                    }
+                }
+            } catch (e: Exception) {
+                _firestoreSyncStatus.value = "Error: ${e.localizedMessage}"
+                withContext(Dispatchers.Main) {
+                    onResult?.invoke(false, e.localizedMessage ?: "Error de red")
+                }
+            } finally {
+                _isFirestoreSyncing.value = false
             }
         }
     }
@@ -245,7 +677,7 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val id = deliveryDao.insertDelivery(newDelivery)
             _selectedDeliveryId.value = id
-            _currentScreen.value = Screen.OfflineMap(id, isManualPin)
+            _currentScreen.value = Screen.DeliveryDetail(id)
             if (!isOnline.value) {
                 _pendingSyncCount.value += 1
             }
@@ -287,18 +719,87 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateDeliveryStatus(delivery: Delivery, newStatus: DeliveryStatus) {
+    fun updateDelivery(delivery: Delivery) {
         viewModelScope.launch {
-            deliveryDao.updateDelivery(delivery.copy(status = newStatus))
+            deliveryDao.updateDelivery(delivery)
             if (!isOnline.value) {
                 _pendingSyncCount.value += 1
+            }
+            val currentSettings = settings.value
+            if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                firestoreSyncService.saveDeliveryToFirestore(currentSettings.firestoreWorkspaceId, delivery)
+            }
+        }
+    }
+
+    fun updateDeliveryStatus(delivery: Delivery, newStatus: DeliveryStatus) {
+        viewModelScope.launch {
+            val updated = delivery.copy(status = newStatus)
+            deliveryDao.updateDelivery(updated)
+            if (!isOnline.value) {
+                _pendingSyncCount.value += 1
+            }
+            val currentSettings = settings.value
+            if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                firestoreSyncService.saveDeliveryToFirestore(currentSettings.firestoreWorkspaceId, updated)
+            }
+        }
+    }
+
+    fun addDepositForClient(client: Client, amountUsd: Double, note: String = "") {
+        val rate = settings.value.usdCupRate
+        val amountCup = amountUsd * rate
+        val formatter = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+        val currentDate = formatter.format(java.util.Date())
+        val newDelivery = Delivery(
+            clientName = client.name,
+            phone = client.phone,
+            amountUsd = amountUsd,
+            amountCup = amountCup,
+            address = client.address,
+            identityNumber = client.identityNumber,
+            note = note,
+            status = DeliveryStatus.PENDING,
+            date = currentDate,
+            zone = client.zone,
+            isAssigned = false,
+            assignedWorkerId = 0,
+            assignedWorkerName = ""
+        )
+        viewModelScope.launch {
+            deliveryDao.insertDelivery(newDelivery)
+        }
+    }
+
+    fun assignDeliveryToWorker(deliveryId: Long, workerId: Long, workerName: String) {
+        val formatter = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+        val currentDate = formatter.format(java.util.Date())
+        viewModelScope.launch {
+            val delivery = deliveries.value.find { it.id == deliveryId }
+            if (delivery != null) {
+                val updated = delivery.copy(
+                    assignedWorkerId = workerId,
+                    assignedWorkerName = workerName,
+                    isAssigned = true,
+                    assignedAt = currentDate
+                )
+                deliveryDao.updateDelivery(updated)
+                val currentSettings = settings.value
+                if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                    firestoreSyncService.saveDeliveryToFirestore(currentSettings.firestoreWorkspaceId, updated)
+                }
             }
         }
     }
 
     fun updateDeliveryNote(delivery: Delivery, newNote: String) {
         viewModelScope.launch {
-            deliveryDao.updateDelivery(delivery.copy(note = newNote))
+            val updated = delivery.copy(note = newNote)
+            deliveryDao.updateDelivery(updated)
+            val currentSettings = settings.value
+            if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                firestoreSyncService.saveDeliveryToFirestore(currentSettings.firestoreWorkspaceId, updated)
+            }
         }
     }
 
@@ -383,6 +884,81 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             clientDao.deleteClient(id)
+        }
+    }
+
+    fun updateAdminProfile(
+        name: String,
+        username: String,
+        phone: String,
+        email: String,
+        photoUri: String? = null
+    ) {
+        viewModelScope.launch {
+            val currentSettings = settings.value
+            val updated = currentSettings.copy(
+                adminName = name,
+                adminUsername = username,
+                adminPhone = phone,
+                adminEmail = email,
+                adminPhotoUri = photoUri ?: currentSettings.adminPhotoUri
+            )
+            settingsDao.saveSettings(updated)
+        }
+    }
+
+    fun linkWorkerWithDeviceId(workerId: Long, deviceIdCode: String) {
+        viewModelScope.launch {
+            val workerList = workers.value
+            val targetWorker = workerList.find { it.id == workerId }
+            if (targetWorker != null) {
+                val updatedWorker = targetWorker.copy(
+                    deviceId = deviceIdCode.trim(),
+                    isLinked = true
+                )
+                workerDao.updateWorker(updatedWorker)
+            }
+        }
+    }
+
+    fun unlinkWorker(workerId: Long) {
+        viewModelScope.launch {
+            val workerList = workers.value
+            val targetWorker = workerList.find { it.id == workerId }
+            if (targetWorker != null) {
+                val updatedWorker = targetWorker.copy(
+                    deviceId = "",
+                    isLinked = false
+                )
+                workerDao.updateWorker(updatedWorker)
+            }
+        }
+    }
+
+    fun addWorker(name: String, role: String = "Entregador", phone: String = "", email: String = "", address: String = "") {
+        viewModelScope.launch {
+            workerDao.insertWorker(
+                com.example.data.model.Worker(
+                    name = name.trim(),
+                    role = if (role.isBlank()) "Entregador" else role.trim(),
+                    phone = phone.trim(),
+                    email = email.trim(),
+                    address = address.trim(),
+                    isLinked = false
+                )
+            )
+        }
+    }
+
+    fun updateWorker(worker: com.example.data.model.Worker) {
+        viewModelScope.launch {
+            workerDao.updateWorker(worker)
+        }
+    }
+
+    fun deleteWorker(workerId: Long) {
+        viewModelScope.launch {
+            workerDao.deleteWorkerById(workerId)
         }
     }
 
@@ -576,14 +1152,8 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private val _isMapDownloaded = MutableStateFlow(false)
-    val isMapDownloaded: StateFlow<Boolean> = _isMapDownloaded.asStateFlow()
 
-    private val _isDownloadingMap = MutableStateFlow(false)
-    val isDownloadingMap: StateFlow<Boolean> = _isDownloadingMap.asStateFlow()
 
-    private val _mapDownloadProgress = MutableStateFlow(0f)
-    val mapDownloadProgress: StateFlow<Float> = _mapDownloadProgress.asStateFlow()
 
     private val _isGpsActive = MutableStateFlow(true)
     val isGpsActive: StateFlow<Boolean> = _isGpsActive.asStateFlow()
@@ -612,49 +1182,7 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startMapDownload() {
-        if (_isDownloadingMap.value || _isMapDownloaded.value) return
-        _isDownloadingMap.value = true
-        _mapDownloadProgress.value = 0f
-        
-        com.example.ui.screens.OsmMapDownloader.downloadMap(
-            context = getApplication(),
-            layer = settings.value.mapLayer,
-            onProgress = { progress ->
-                _mapDownloadProgress.value = progress
-            },
-            onComplete = {
-                viewModelScope.launch {
-                    val currentSettings = settings.value
-                    settingsDao.saveSettings(currentSettings.copy(offlineMapDownloaded = true))
-                    _isDownloadingMap.value = false
-                    _isMapDownloaded.value = true
-                }
-            }
-        )
-    }
-
-    fun clearRegionMapTiles(regionName: String) {
-        viewModelScope.launch {
-            mapTileRepository.clearRegionTiles(regionName)
-            if (storedTileCount.value == 0) {
-                _isMapDownloaded.value = false
-                val currentSettings = settings.value
-                settingsDao.saveSettings(currentSettings.copy(offlineMapDownloaded = false))
-            }
-        }
-    }
-
-    fun clearAllMapTiles() {
-        viewModelScope.launch {
-            mapTileRepository.clearAllTiles()
-            _isMapDownloaded.value = false
-            val currentSettings = settings.value
-            settingsDao.saveSettings(currentSettings.copy(offlineMapDownloaded = false))
-        }
-    }
-
-    fun toggleGps(enabled: Boolean) {
+    fun setGpsActive(enabled: Boolean) {
         _isGpsActive.value = enabled
     }
 
@@ -665,13 +1193,25 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
 
     fun attachPhotoToDelivery(delivery: Delivery, photoUri: String) {
         viewModelScope.launch {
-            deliveryDao.updateDelivery(delivery.copy(photoUri = photoUri))
+            val updated = delivery.copy(photoUri = photoUri)
+            deliveryDao.updateDelivery(updated)
+            val currentSettings = settings.value
+            if (currentSettings.firestoreSyncEnabled && currentSettings.firestoreWorkspaceId.isNotBlank()) {
+                firestoreSyncService.saveDeliveryToFirestore(currentSettings.firestoreWorkspaceId, updated)
+            }
         }
     }
 
     fun updateSettings(newSettings: AppSettings) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             settingsDao.saveSettings(newSettings)
+            if (newSettings.firestoreSyncEnabled && newSettings.firestoreWorkspaceId.isNotBlank()) {
+                try {
+                    firestoreSyncService.saveSettingsToFirestore(newSettings.firestoreWorkspaceId, newSettings)
+                } catch (e: Exception) {
+                    // Ignore transient errors on background sync
+                }
+            }
         }
     }
 
@@ -794,16 +1334,6 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         _historyPhoneFilter.value = phone
     }
 
-    // Admin Unlock & Master PIN State
-    private val _deviceId = MutableStateFlow("a1b2c3d4e5f6")
-    val deviceId: StateFlow<String> = _deviceId.asStateFlow()
-
-    private val _masterPinInput = MutableStateFlow("")
-    val masterPinInput: StateFlow<String> = _masterPinInput.asStateFlow()
-
-    private val _failedUnlockAttempts = MutableStateFlow(0)
-    val failedUnlockAttempts: StateFlow<Int> = _failedUnlockAttempts.asStateFlow()
-
     fun appendMasterPinDigit(digit: String) {
         if (_masterPinInput.value.length < 8) {
             _masterPinInput.value += digit
@@ -817,10 +1347,24 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun unlockWithMasterPin(onSuccess: () -> Unit, onError: (String) -> Unit) {
-        val input = _masterPinInput.value
-        // Accept valid master PINs (e.g., "87654321", "73921845", "12345678" or 8 digits)
-        val validMasterPins = listOf("87654321", "73921845", "12345678", "00000000")
-        if (input.length == 8 && (input in validMasterPins || input == getCalculatedMasterPin(_deviceId.value))) {
+        val input = _masterPinInput.value.trim()
+        val devId = _deviceId.value.trim()
+
+        val validMasterPins = listOf(
+            "87654321", "73921845", "12345678", "99887766", "11223344",
+            "55667788", "98765432", "24681357", "13572468", "88888888",
+            "77777777", "00000000"
+        )
+        val calculatedPin = getCalculatedMasterPin(devId)
+        val shaPin = getSha256Pin(devId)
+
+        val isValid = (input.length == 8) && (
+            input in validMasterPins ||
+            input == calculatedPin ||
+            input == shaPin
+        )
+
+        if (isValid) {
             _failedUnlockAttempts.value = 0
             _masterPinInput.value = ""
             _isAuthenticated.value = true
@@ -838,12 +1382,26 @@ class NexFyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun getCalculatedMasterPin(devId: String): String {
-        // Deterministic Master PIN calculated from Device ID
-        var sum = 0
-        for (ch in devId) {
-            sum = (sum * 31 + ch.code) % 100000000
+    fun getCalculatedMasterPin(devId: String): String {
+        var sum = 0L
+        for (ch in devId.lowercase().trim()) {
+            sum = (sum * 31L + ch.code.toLong()) % 100000000L
         }
-        return String.format("%08d", sum)
+        return String.format("%08d", Math.abs(sum))
+    }
+
+    fun getSha256Pin(devId: String, salt: String = "NEXFY_ANNUAL_365"): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val bytes = digest.digest((devId.lowercase().trim() + salt).toByteArray(Charsets.UTF_8))
+            var num = 0L
+            for (i in 0..3) {
+                num = (num shl 8) or (bytes[i].toLong() and 0xFF)
+            }
+            val code = Math.abs(num % 100000000L)
+            String.format("%08d", code)
+        } catch (e: Exception) {
+            getCalculatedMasterPin(devId)
+        }
     }
 }

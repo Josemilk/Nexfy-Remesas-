@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ContentCopy
@@ -55,7 +54,8 @@ import com.example.ui.NexFyViewModel
 @Composable
 fun AdminUnlockScreen(
     viewModel: NexFyViewModel,
-    onBackToPin: () -> Unit,
+    isLicenseMode: Boolean = false,
+    onBackToPin: () -> Unit = {},
     onUnlocked: () -> Unit
 ) {
     val context = LocalContext.current
@@ -93,24 +93,8 @@ fun AdminUnlockScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Top Navigation Bar (Back button)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Start,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onBackToPin,
-                        modifier = Modifier.testTag("admin_unlock_back")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Volver al PIN",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
+                // Top Spacing
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -123,8 +107,8 @@ fun AdminUnlockScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.AdminPanelSettings,
-                        contentDescription = "Desbloqueo Admin",
+                        imageVector = if (isLicenseMode) Icons.Default.Security else Icons.Default.AdminPanelSettings,
+                        contentDescription = if (isLicenseMode) "Licencia Anual" else "Desbloqueo Admin",
                         tint = Color(0xFFC7D2FE),
                         modifier = Modifier.size(56.dp)
                     )
@@ -134,12 +118,12 @@ fun AdminUnlockScreen(
 
                 // Title
                 Text(
-                    text = "Desbloqueo de\nAdministrador",
+                    text = if (isLicenseMode) "Activación de\nLicencia Anual" else "Desbloqueo de\nAdministrador",
                     color = Color.White,
-                    fontSize = 32.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    lineHeight = 36.sp
+                    lineHeight = 35.sp
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -201,20 +185,56 @@ fun AdminUnlockScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Contacta al admin y pide el PIN Maestro para este ID",
+                    text = if (isLicenseMode)
+                        "Envía tu ID de activación a soporte para activar tu plan anual (365 días)"
+                    else
+                        "Contacta al admin y pide el PIN Maestro para este ID",
                     color = Color(0xFFE0E7FF),
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                if (isLicenseMode) {
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Subtitle: Introduce PIN Maestro
+                    // Direct WhatsApp Action Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF25D366).copy(alpha = 0.25f))
+                            .clickable {
+                                try {
+                                    val msg = "Hola soporte de NexFy, solicito la clave de activación anual para mi ID de dispositivo: $deviceId"
+                                    val intent = android.content.Intent(
+                                        android.content.Intent.ACTION_VIEW,
+                                        android.net.Uri.parse("https://api.whatsapp.com/send?phone=51076491&text=${android.net.Uri.encode(msg)}")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "ID: $deviceId listo para enviar por mensaje", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .testTag("whatsapp_license_request_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "💬 Enviar ID por WhatsApp",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Subtitle: Introduce PIN Maestro / Código de Activación
                 Text(
-                    text = "Introduce PIN Maestro",
+                    text = if (isLicenseMode) "Introduce Código de Activación" else "Introduce PIN Maestro",
                     color = Color.White,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.SemiBold
@@ -222,7 +242,7 @@ fun AdminUnlockScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 8 Circles for Master PIN Input
+                // 8 Circles for Master PIN / Activation Code Input
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -325,18 +345,34 @@ fun AdminUnlockScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Primary Action Button: Desbloquear y crear PIN nuevo
+                // Primary Action Button
                 Button(
                     onClick = {
-                        viewModel.unlockWithMasterPin(
-                            onSuccess = {
-                                Toast.makeText(context, "¡Acceso concedido! Crea tu nuevo PIN", Toast.LENGTH_LONG).show()
-                                onUnlocked()
-                            },
-                            onError = { errorMsg ->
-                                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                            }
-                        )
+                        if (isLicenseMode) {
+                            viewModel.activateAnnualLicense(
+                                onSuccess = { daysGranted, expiresDateStr ->
+                                    Toast.makeText(
+                                        context,
+                                        "🎉 ¡Licencia Anual activada ($daysGranted días)! Válida hasta $expiresDateStr",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    onUnlocked()
+                                },
+                                onError = { errorMsg ->
+                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        } else {
+                            viewModel.unlockWithMasterPin(
+                                onSuccess = {
+                                    Toast.makeText(context, "¡Acceso concedido! Crea tu nuevo PIN", Toast.LENGTH_LONG).show()
+                                    onUnlocked()
+                                },
+                                onError = { errorMsg ->
+                                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                                }
+                            )
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -350,7 +386,7 @@ fun AdminUnlockScreen(
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
                 ) {
                     Text(
-                        text = "Desbloquear y crear PIN nuevo",
+                        text = if (isLicenseMode) "Activar Licencia (365 Días)" else "Desbloquear y crear PIN nuevo",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -358,12 +394,12 @@ fun AdminUnlockScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Warning Banner Pill
+                // Warning / Info Banner Pill
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFD97706).copy(alpha = 0.35f)
+                        containerColor = if (isLicenseMode) Color(0xFF1E3A8A).copy(alpha = 0.4f) else Color(0xFFD97706).copy(alpha = 0.35f)
                     ),
                     border = CardDefaults.outlinedCardBorder()
                 ) {
@@ -375,17 +411,24 @@ fun AdminUnlockScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
+                            imageVector = if (isLicenseMode) Icons.Default.Security else Icons.Default.Warning,
                             contentDescription = null,
-                            tint = Color(0xFFFDE047),
+                            tint = if (isLicenseMode) Color(0xFF93C5FD) else Color(0xFFFDE047),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (failedAttempts > 0)
-                                "Si fallas 3 veces se borrarán los datos ($failedAttempts/3 fallidos)"
-                            else
-                                "Si fallas 3 veces se borrarán todos los datos",
+                            text = if (isLicenseMode) {
+                                if (failedAttempts > 0)
+                                    "Clave vinculada a este hardware ($failedAttempts/3 intentos)"
+                                else
+                                    "Licencia vinculada a este hardware • Vigencia: 365 días"
+                            } else {
+                                if (failedAttempts > 0)
+                                    "Si fallas 3 veces se borrarán los datos ($failedAttempts/3 fallidos)"
+                                else
+                                    "Si fallas 3 veces se borrarán todos los datos"
+                            },
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -398,7 +441,7 @@ fun AdminUnlockScreen(
 
                 // Footer
                 Text(
-                    text = "NexFy Remesas • Versión 2.4.1 • Ayuda",
+                    text = if (isLicenseMode) "NexFy Remesas • Licencia SaaS Anual • Soporte" else "NexFy Remesas • Versión 2.4.1 • Ayuda",
                     color = Color(0xFFC7D2FE),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,

@@ -23,5 +23,9 @@ data class Delivery(
     val zone: String = "Zona Centro",
     val photoUri: String? = null,
     val latitude: Double = 23.1367,
-    val longitude: Double = -82.3816
+    val longitude: Double = -82.3816,
+    val assignedWorkerId: Long = 0,
+    val assignedWorkerName: String = "",
+    val isAssigned: Boolean = false,
+    val assignedAt: String = ""
 )

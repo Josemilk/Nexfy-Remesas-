@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
           // Extract lat lng if possible
           val targetLocation = parseGeoUri(uri)
           if (targetLocation != null) {
-              viewModel.navigateTo(Screen.OfflineMap(targetLocation = targetLocation))
+              com.example.ui.launchOsmAndMap(this, targetLocation.first, targetLocation.second)
           }
           pendingMapUri = null
       }

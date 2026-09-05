@@ -10,6 +10,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,7 +20,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -27,9 +31,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QuestionAnswer
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -48,6 +55,7 @@ import coil.compose.AsyncImage
 import com.example.data.model.Client
 import com.example.data.model.Delivery
 import com.example.ui.NexFyViewModel
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -64,6 +72,7 @@ fun ClientDetailScreen(
     val deliveries by viewModel.deliveries.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showAddDepositDialog by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
@@ -247,56 +256,30 @@ fun ClientDetailScreen(
         it.phone.replace(Regex("[^0-9]"), "") == client.phone.replace(Regex("[^0-9]"), "")
     }
 
+    val totalClientUsd = remember(clientDeliveries) { clientDeliveries.sumOf { it.amountUsd } }
+    val totalClientCup = remember(clientDeliveries) { clientDeliveries.sumOf { it.amountCup } }
+    val deliveredClientDeliveries = remember(clientDeliveries) {
+        clientDeliveries.filter { it.status == com.example.data.model.DeliveryStatus.DELIVERED }
+    }
+    val deliveredClientUsd = remember(deliveredClientDeliveries) { deliveredClientDeliveries.sumOf { it.amountUsd } }
+    val pendingClientDeliveries = remember(clientDeliveries) {
+        clientDeliveries.filter { it.status != com.example.data.model.DeliveryStatus.DELIVERED }
+    }
+    val pendingClientUsd = remember(pendingClientDeliveries) { pendingClientDeliveries.sumOf { it.amountUsd } }
+
+    var deliveryToEdit by remember { mutableStateOf<Delivery?>(null) }
+
+    val scope = rememberCoroutineScope()
+
     val exportFullClientFile = {
-        val sb = StringBuilder()
-        sb.append("📋 **FICHA COMPLETA DEL CLIENTE**\n")
-        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-        sb.append("👤 Nombre: ${client.name}\n")
-        sb.append("📞 Teléfono: ${client.phone}\n")
-        if (client.identityNumber.isNotEmpty()) sb.append("🪪 Carnet: ${client.identityNumber}\n")
-        sb.append("📍 Zona: ${client.zone}\n")
-        if (client.address.isNotEmpty()) sb.append("🏠 Dirección: ${client.address}\n")
-        sb.append("📊 Total de entregas recibidas: ${clientDeliveries.size}\n")
-        sb.append("\n📜 **HISTORIAL DETALLADO DE ENTREGAS:**\n")
-
-        val imageUris = mutableListOf<Uri>()
-
-        clientDeliveries.forEachIndexed { idx, delivery ->
-            sb.append("\n#${idx + 1} - Fecha: ${delivery.date}\n")
-            sb.append("   • Importe: $${String.format("%.2f", delivery.amountUsd)} USD (${String.format("%,.2f", delivery.amountCup)} CUP)\n")
-            sb.append("   • Estado: ${if (delivery.status == com.example.data.model.DeliveryStatus.DELIVERED) "Entregada" else "Pendiente"}\n")
-            if (delivery.note.isNotEmpty()) sb.append("   • Nota: ${delivery.note}\n")
-
-            val photoUriStr = delivery.photoUri
-            if (!photoUriStr.isNullOrEmpty() && (photoUriStr.startsWith("file://") || photoUriStr.startsWith("content://"))) {
-                try {
-                    val file = if (photoUriStr.startsWith("file://")) File(Uri.parse(photoUriStr).path ?: "") else File(photoUriStr)
-                    if (file.exists()) {
-                        val compFile = compressImageFile(file)
-                        val contentUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", compFile)
-                        imageUris.add(contentUri)
-                        sb.append("   • Photo comprobante adjuntada ✓\n")
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        Toast.makeText(context, "Generando PDF...", Toast.LENGTH_SHORT).show()
+        scope.launch {
+            val shareIntent = com.example.utils.PdfExporter.exportClientDeliveriesToPdf(context, client, clientDeliveries, "Ficha Completa de Cliente")
+            if (shareIntent != null) {
+                context.startActivity(Intent.createChooser(shareIntent, "Compartir PDF de Cliente"))
+            } else {
+                Toast.makeText(context, "Error al generar PDF", Toast.LENGTH_SHORT).show()
             }
-        }
-
-        if (imageUris.isNotEmpty()) {
-            val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "image/jpeg"
-                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(imageUris))
-                putExtra(Intent.EXTRA_TEXT, sb.toString())
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Exportar Ficha Completa del Cliente"))
-        } else {
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, sb.toString())
-            }
-            context.startActivity(Intent.createChooser(shareIntent, "Exportar Ficha Completa del Cliente"))
         }
     }
 
@@ -425,6 +408,23 @@ fun ClientDetailScreen(
                                 }
                             )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Cerrar",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -558,6 +558,162 @@ fun ClientDetailScreen(
             }
         }
 
+        // Matriz Financiera del Cliente
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFEFF6FF)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ReceiptLong,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Matriz Financiera del Cliente",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFEFF6FF)
+                        ) {
+                            Text(
+                                text = "100% Real",
+                                color = Color(0xFF1D4ED8),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 3 KPI Boxes
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Total Remesas / Depósitos
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Total Registrado", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "$${String.format(java.util.Locale.US, "%.2f", totalClientUsd)}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                Text(
+                                    text = "${clientDeliveries.size} remesas",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF2563EB),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        // Total Entregado
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF0FDF4),
+                            border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Entregado", fontSize = 11.sp, color = Color(0xFF166534), fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "$${String.format(java.util.Locale.US, "%.2f", deliveredClientUsd)}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF15803D)
+                                )
+                                Text(
+                                    text = "${deliveredClientDeliveries.size} completadas",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF166534),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        // Total Pendiente / Asignado
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, Color(0xFFFDE68A))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("Pendiente", fontSize = 11.sp, color = Color(0xFF92400E), fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "$${String.format(java.util.Locale.US, "%.2f", pendingClientUsd)}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFB45309)
+                                )
+                                Text(
+                                    text = "${pendingClientDeliveries.size} por entregar",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF92400E),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    if (totalClientCup > 0) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Equivalente total en CUP:", fontSize = 12.sp, color = Color(0xFF64748B))
+                            Text(
+                                text = "${String.format(java.util.Locale.US, "%,.2f", totalClientCup)} CUP",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF059669)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Additional information card
         item {
             Card(
@@ -607,6 +763,68 @@ fun ClientDetailScreen(
                                 Text(text = "Dirección: ${client.address}", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // New Deposit (+) Action Section
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showAddDepositDialog = true },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                border = BorderStroke(1.5.dp, Color(0xFF3B82F6))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2563EB)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Nuevo Depósito",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Introducir nuevo depósito",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E3A8A)
+                            )
+                            Text(
+                                text = "Registra un nuevo depósito en USD para este cliente",
+                                fontSize = 12.sp,
+                                color = Color(0xFF3B82F6)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { showAddDepositDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("+ USD", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -663,14 +881,45 @@ fun ClientDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "$${String.format("%.2f", delivery.amountUsd)} USD",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    if (delivery.status == com.example.data.model.DeliveryStatus.DELIVERED) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFD1FAE5))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Entregada", color = Color(0xFF047857), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else if (delivery.isAssigned) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFFEF3C7))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Asignado: ${delivery.assignedWorkerName}", color = Color(0xFFB45309), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(Color(0xFFFEE2E2))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Por asignar", color = Color(0xFFB91C1C), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
                                 Text(
-                                    text = "$${String.format("%.2f", delivery.amountUsd)} USD (${String.format("%,.2f", delivery.amountCup)} CUP)",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Fecha: ${delivery.date}",
+                                    text = "Equivalente: ${String.format("%,.2f", delivery.amountCup)} CUP • Fecha: ${delivery.date}",
                                     fontSize = 12.sp,
                                     color = Color(0xFF64748B)
                                 )
@@ -795,6 +1044,20 @@ fun ClientDetailScreen(
                         Text(delivery.note, fontSize = 13.sp, color = Color(0xFF334155))
                     }
 
+                    OutlinedButton(
+                        onClick = {
+                            val target = delivery
+                            selectedDeliveryForModal = null
+                            deliveryToEdit = target
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Editar Importe / Datos de la Entrega")
+                    }
+
                     if (!delivery.photoUri.isNullOrEmpty()) {
                         Text("Comprobante de entrega:", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         Box(
@@ -841,6 +1104,191 @@ fun ClientDetailScreen(
             dismissButton = {
                 TextButton(onClick = { selectedDeliveryForModal = null }) {
                     Text("Cerrar")
+                }
+            }
+        )
+    }
+
+    if (showAddDepositDialog) {
+        var depositAmountUsdStr by remember { mutableStateOf("") }
+        var depositNote by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddDepositDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Nuevo Depósito USD",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Cliente: ${client.name}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1E293B)
+                    )
+
+                    OutlinedTextField(
+                        value = depositAmountUsdStr,
+                        onValueChange = { depositAmountUsdStr = it },
+                        label = { Text("Monto del nuevo depósito (USD) *") },
+                        placeholder = { Text("Ej: 100") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = depositNote,
+                        onValueChange = { depositNote = it },
+                        label = { Text("Observaciones / Nota (Opcional)") },
+                        placeholder = { Text("Ej. Entregar en billetes de 20") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amount = depositAmountUsdStr.toDoubleOrNull()
+                        if (amount == null || amount <= 0.0) {
+                            Toast.makeText(context, "Ingresa un monto válido en USD", Toast.LENGTH_SHORT).show()
+                        } else {
+                            viewModel.addDepositForClient(client, amount, depositNote)
+                            showAddDepositDialog = false
+                            Toast.makeText(context, "Depósito de $$amount USD creado (Por asignar) ✓", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Guardar Depósito", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDepositDialog = false }) {
+                    Text("Cancelar", color = Color(0xFF64748B))
+                }
+            }
+        )
+    }
+
+    if (deliveryToEdit != null) {
+        val editingDelivery = deliveryToEdit!!
+        var editUsdStr by remember(editingDelivery) { mutableStateOf(editingDelivery.amountUsd.toString()) }
+        var editNoteStr by remember(editingDelivery) { mutableStateOf(editingDelivery.note) }
+        var editDelivered by remember(editingDelivery) { 
+            mutableStateOf(editingDelivery.status == com.example.data.model.DeliveryStatus.DELIVERED) 
+        }
+
+        AlertDialog(
+            onDismissRequest = { deliveryToEdit = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF2563EB))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Editar Entrega / Depósito", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Cliente: ${editingDelivery.clientName}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1E293B)
+                    )
+
+                    OutlinedTextField(
+                        value = editUsdStr,
+                        onValueChange = { editUsdStr = it },
+                        label = { Text("Importe USD") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        )
+                    )
+
+                    val parsedUsd = editUsdStr.toDoubleOrNull() ?: 0.0
+                    val calculatedCup = parsedUsd * settings.usdCupRate
+                    Text(
+                        text = "Equivalente: ${String.format(java.util.Locale.US, "%,.2f", calculatedCup)} CUP (Tasa: ${settings.usdCupRate})",
+                        fontSize = 12.sp,
+                        color = Color(0xFF059669),
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    OutlinedTextField(
+                        value = editNoteStr,
+                        onValueChange = { editNoteStr = it },
+                        label = { Text("Observaciones / Nota") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { editDelivered = !editDelivered }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = editDelivered,
+                            onCheckedChange = { editDelivered = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (editDelivered) "Estado: ENTREGADA ✓" else "Estado: PENDIENTE",
+                            fontWeight = FontWeight.Bold,
+                            color = if (editDelivered) Color(0xFF059669) else Color(0xFFD97706),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newUsd = editUsdStr.toDoubleOrNull()
+                        if (newUsd == null || newUsd < 0.0) {
+                            Toast.makeText(context, "Monto inválido", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val newCup = newUsd * settings.usdCupRate
+                            val newStatus = if (editDelivered) com.example.data.model.DeliveryStatus.DELIVERED else com.example.data.model.DeliveryStatus.PENDING
+                            val updated = editingDelivery.copy(
+                                amountUsd = newUsd,
+                                amountCup = newCup,
+                                note = editNoteStr,
+                                status = newStatus
+                            )
+                            viewModel.updateDelivery(updated)
+                            deliveryToEdit = null
+                            Toast.makeText(context, "Entrega actualizada ✓", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Guardar Cambios", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deliveryToEdit = null }) {
+                    Text("Cancelar")
                 }
             }
         )

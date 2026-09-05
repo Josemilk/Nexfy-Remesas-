@@ -1,0 +1,796 @@
+private fun AdminHomeContent(
+    settings: AppSettings,
+    deliveries: List<com.example.data.model.Delivery>,
+    workers: List<Worker>,
+    displayRemesasStr: String,
+    displayUsersStr: String,
+    displayPendingStr: String,
+    cardBg: Color,
+    cardBorder: Color,
+    textPrimary: Color,
+    textSecondary: Color,
+    mintGreen: Color,
+    tealIconBg: Color,
+    amberWarning: Color,
+    mutedText: Color,
+    isDark: Boolean,
+    onOpenPhotoPicker: () -> Unit,
+    onOpenSettingsMenu: () -> Unit,
+    onNavigateToDeliveries: () -> Unit,
+    onNavigateToClients: () -> Unit,
+    onSaveFirestore: () -> Unit,
+    onAssignDelivery: (deliveryId: Long, workerId: Long, workerName: String) -> Unit,
+    onUpdateSettings: (AppSettings) -> Unit,
+    onEditElement: (title: String, initialValue: String, onSave: (String) -> Unit) -> Unit,
+    onOpenCashSettlement: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.Start
+    ) {
+        // Top Bar: Profile Avatar & Username (Left) & Settings Gear (Right)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Profile Avatar with Mint Green Ring + Username beneath
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(if (isDark) Color(0xFF1E2838) else Color(0xFFE2E8F0))
+                            .border(BorderStroke(2.5.dp, mintGreen), CircleShape)
+                            .clickable { onOpenPhotoPicker() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (settings.adminPhotoUri.isNotEmpty()) {
+                            AsyncImage(
+                                model = settings.adminPhotoUri,
+                                contentDescription = "Foto Administrador",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Perfil Administrador",
+                                tint = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B),
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Username reference under photo (Editable)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Usuario", settings.adminUsername) { newVal ->
+                                    onUpdateSettings(settings.copy(adminUsername = newVal))
+                                }
+                            }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = if (settings.adminUsername.startsWith("@")) settings.adminUsername else "@${settings.adminUsername.ifEmpty { "admin_nexfy" }}",
+                            color = mintGreen,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen.copy(alpha = 0.7f), modifier = Modifier.size(11.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column {
+                    // Admin Name (Editable)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Nombre de Administrador", settings.adminName) { newVal ->
+                                    onUpdateSettings(settings.copy(adminName = newVal))
+                                }
+                            }
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = settings.adminName.ifEmpty { "Administrador" },
+                            color = textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = textSecondary.copy(alpha = 0.8f), modifier = Modifier.size(13.dp))
+                    }
+
+                    Text(
+                        text = "Panel de Control",
+                        color = mutedText,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            // Quick Cloud Sync & Settings Gear Icons
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Settings Gear Icon (Rueda de configuración)
+                IconButton(
+                    onClick = onOpenSettingsMenu,
+                    modifier = Modifier.testTag("btn_admin_settings_wheel")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Configuración Administrador",
+                        tint = textPrimary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        }
+
+        // Screen Main Title (Editable)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    onEditElement("Editar Título Principal de Home", settings.homeTitle) { newVal ->
+                        onUpdateSettings(settings.copy(homeTitle = newVal))
+                    }
+                }
+                .padding(bottom = 8.dp)
+        ) {
+            Text(
+                text = settings.homeTitle,
+                color = textPrimary,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 36.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.Default.Edit, contentDescription = "Editar Título", tint = mintGreen, modifier = Modifier.size(20.dp))
+        }
+
+        // Subtitle (Editable)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable {
+                    onEditElement("Editar Subtítulo de Home", settings.homeSubtitle) { newVal ->
+                        onUpdateSettings(settings.copy(homeSubtitle = newVal))
+                    }
+                }
+                .padding(bottom = 20.dp)
+        ) {
+            Text(
+                text = settings.homeSubtitle,
+                color = mutedText,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(Icons.Default.Edit, contentDescription = "Editar Subtítulo", tint = mutedText, modifier = Modifier.size(15.dp))
+        }
+
+        // Cuadre de Caja Diario & Liquidaciones Banner
+        val deliveredCount = deliveries.count { it.status == DeliveryStatus.DELIVERED }
+        val deliveredUsd = deliveries.filter { it.status == DeliveryStatus.DELIVERED }.sumOf { it.amountUsd }
+        
+        if (settings.showAdminSettlementBanner) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 18.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .border(
+                        BorderStroke(1.dp, if (isDark) Color(0xFF1E3A8A) else Color(0xFFBFDBFE)),
+                        RoundedCornerShape(20.dp)
+                    )
+                    .clickable { onOpenCashSettlement() },
+                color = if (isDark) Color(0xFF0F1E36) else Color(0xFFEFF6FF)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0284C7)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Cuadre de Caja Diario & Liquidación",
+                                color = if (isDark) Color.White else Color(0xFF0F172A),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "$deliveredCount entregas • $${String.format("%.2f", deliveredUsd)} USD liquidados",
+                                color = if (isDark) Color(0xFF38BDF8) else Color(0xFF0284C7),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFF0284C7)
+                        ) {
+                            Text(
+                                text = "Abrir",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { onUpdateSettings(settings.copy(showAdminSettlementBanner = false)) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Ocultar", tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        // Main Metric Card: "Remesas Hoy"
+        if (settings.showRemesasCard) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(22.dp))
+                    .clickable { onNavigateToDeliveries() },
+                color = cardBg
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(22.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // Top Badge Icon (Teal container with Payments/Wallet icon)
+                        Box(
+                            modifier = Modifier
+                                .size(height = 46.dp, width = 64.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(tealIconBg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = "Remesas Icon",
+                                tint = mintGreen,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { onUpdateSettings(settings.copy(showRemesasCard = false)) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Ocultar", tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Card Title (Editable)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onEditElement("Editar Título de Tarjeta Remesas", settings.remesasCardTitle) { newVal ->
+                                onUpdateSettings(settings.copy(remesasCardTitle = newVal))
+                            }
+                        }
+                        .padding(vertical = 2.dp)
+                ) {
+                    Text(
+                        text = settings.remesasCardTitle,
+                        color = textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen, modifier = Modifier.size(14.dp))
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Metric Value
+                Text(
+                    text = displayRemesasStr,
+                    color = textPrimary,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Trend indicator (Editable)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onEditElement("Editar Indicador de Tendencia", settings.remesasTrendText) { newVal ->
+                                onUpdateSettings(settings.copy(remesasTrendText = newVal))
+                            }
+                        }
+                        .padding(vertical = 2.dp)
+                ) {
+                    Text(
+                        text = settings.remesasTrendText,
+                        color = mintGreen,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = "Tendencia",
+                        tint = mintGreen,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Grid Row: 2 Cards (Usuarios Activos & Pagos Pendientes)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Card 2: Usuarios Activos -> Navigates to Clients
+            if (settings.showUsersCard) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(22.dp))
+                        .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(22.dp))
+                        .clickable { onNavigateToClients() },
+                    color = cardBg
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tealIconBg),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.People,
+                                    contentDescription = "Usuarios Activos Icon",
+                                    tint = mintGreen,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onUpdateSettings(settings.copy(showUsersCard = false)) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Ocultar", tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Título Tarjeta Usuarios", settings.usersCardTitle) { newVal ->
+                                    onUpdateSettings(settings.copy(usersCardTitle = newVal))
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = settings.usersCardTitle,
+                            color = textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen, modifier = Modifier.size(12.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = displayUsersStr,
+                        color = textPrimary,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Badge de Usuarios Nuevos", settings.usersBadgeText) { newVal ->
+                                    onUpdateSettings(settings.copy(usersBadgeText = newVal))
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = settings.usersBadgeText,
+                            color = mintGreen,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                    }
+                }
+            }
+
+            // Card 3: Pagos Pendientes -> Navigates to History / Deliveries
+            if (settings.showPendingCard) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(22.dp))
+                        .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(22.dp))
+                        .clickable { onNavigateToDeliveries() },
+                    color = cardBg
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(tealIconBg),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = "Pagos Pendientes Icon",
+                                    tint = mintGreen,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onUpdateSettings(settings.copy(showPendingCard = false)) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Ocultar", tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                            }
+                        }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Título Pagos Pendientes", settings.pendingCardTitle) { newVal ->
+                                    onUpdateSettings(settings.copy(pendingCardTitle = newVal))
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = settings.pendingCardTitle,
+                            color = textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen, modifier = Modifier.size(12.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = displayPendingStr,
+                        color = textPrimary,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onEditElement("Editar Texto de Alerta Pendiente", settings.pendingWarningText) { newVal ->
+                                    onUpdateSettings(settings.copy(pendingWarningText = newVal))
+                                }
+                            }
+                    ) {
+                        Text(
+                            text = settings.pendingWarningText,
+                            color = amberWarning,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Editar", tint = amberWarning.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
+                    }
+                }
+            }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Clientes por atender hoy (Por asignar) section
+        val unassignedDeliveries = deliveries.filter { !it.isAssigned && it.status == DeliveryStatus.PENDING }
+        var selectedDeliveryForAssign by remember { mutableStateOf<com.example.data.model.Delivery?>(null) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onEditElement("Editar Título de Sección", settings.unassignedSectionTitle) { newVal ->
+                                onUpdateSettings(settings.copy(unassignedSectionTitle = newVal))
+                            }
+                        }
+                ) {
+                    Text(
+                        text = settings.unassignedSectionTitle,
+                        color = textPrimary,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mintGreen, modifier = Modifier.size(16.dp))
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onEditElement("Editar Subtítulo de Sección", settings.unassignedSectionSubtitle) { newVal ->
+                                onUpdateSettings(settings.copy(unassignedSectionSubtitle = newVal))
+                            }
+                        }
+                ) {
+                    Text(
+                        text = settings.unassignedSectionSubtitle,
+                        color = mutedText,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = mutedText, modifier = Modifier.size(12.dp))
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isDark) Color(0xFF371B1E) else Color(0xFFFEE2E2))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "${unassignedDeliveries.size} por asignar",
+                    color = Color(0xFFEF4444),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        if (unassignedDeliveries.isEmpty()) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(BorderStroke(1.dp, cardBorder), RoundedCornerShape(18.dp)),
+                color = cardBg
+            ) {
+                Box(
+                    modifier = Modifier.padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No hay depósitos pendientes por asignar en el día de hoy.",
+                        color = mutedText,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                unassignedDeliveries.forEach { delivery ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(
+                                BorderStroke(1.dp, if (isDark) Color(0xFF371B1E) else Color(0xFFFECACA)),
+                                RoundedCornerShape(12.dp)
+                            )
+                            .clickable { selectedDeliveryForAssign = delivery },
+                        color = cardBg
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isDark) Color(0xFF450A0A) else Color(0xFFFEE2E2))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "POR ASIGNAR",
+                                        color = Color(0xFFDC2626),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = delivery.clientName,
+                                        color = textPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = delivery.date,
+                                        color = mutedText,
+                                        fontSize = 11.sp,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "$${String.format("%.2f", delivery.amountUsd)} USD",
+                                    color = mintGreen,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Button(
+                                    onClick = { selectedDeliveryForAssign = delivery },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("Asignar", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        selectedDeliveryForAssign?.let { delivery ->
+            AssignWorkerDialog(
+                delivery = delivery,
+                workers = workers,
+                isDark = isDark,
+                onDismiss = { selectedDeliveryForAssign = null },
+                onConfirmAssign = { worker ->
+                    onAssignDelivery(delivery.id, worker.id, worker.name)
+                    selectedDeliveryForAssign = null
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(36.dp))
+
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Ecosistema de Administración • NexFy Remesas",
+                color = mutedText.copy(alpha = 0.7f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Normal
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}

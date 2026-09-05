@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Image
@@ -48,6 +50,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -73,13 +76,18 @@ import com.example.data.model.Delivery
 import com.example.data.model.DeliveryStatus
 import com.example.ui.NexFyViewModel
 import com.example.ui.Screen
+import com.example.ui.components.CustomerNotificationDialog
+import com.example.ui.components.DigitalReceiptDialog
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.VerifiedUser
 
 @Composable
 fun DeliveryDetailScreen(
     deliveryId: Long,
     viewModel: NexFyViewModel,
     onBack: () -> Unit,
-    onOpenMap: (Long) -> Unit
+    onOpenMap: (Double, Double) -> Unit
 ) {
     val context = LocalContext.current
     val deliveries by viewModel.deliveries.collectAsState()
@@ -96,6 +104,8 @@ fun DeliveryDetailScreen(
 
     var currentNote by remember(delivery.id) { mutableStateOf(delivery.note) }
     val isPending = delivery.status == DeliveryStatus.PENDING
+    var showReceiptDialog by remember { mutableStateOf(false) }
+    var showNotificationDialog by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -219,18 +229,35 @@ fun DeliveryDetailScreen(
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFE0E7FF))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "3/4",
-                    color = Color(0xFF4338CA),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFE0E7FF))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "3/4",
+                        color = Color(0xFF4338CA),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cerrar",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -361,7 +388,7 @@ fun DeliveryDetailScreen(
                 }
             }
 
-            // Quick Actions (Llamar, SMS, WhatsApp)
+            // Quick Actions (Llamar, Notificar, WhatsApp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -384,22 +411,18 @@ fun DeliveryDetailScreen(
                             .padding(14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF1E1B4B), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF1E1B4B), modifier = Modifier.size(26.dp))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Llamar", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
+                        Text(text = "Llamar", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
                     }
                 }
 
-                // SMS
+                // Notificar por SMS / WhatsApp
                 Card(
                     modifier = Modifier
                         .weight(1f)
-                        .clickable {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("sms:${delivery.phone}"))
-                            intent.putExtra("sms_body", "Hola ${delivery.clientName}, tu remesa está en camino.")
-                            context.startActivity(intent)
-                        }
-                        .testTag("action_sms"),
+                        .clickable { showNotificationDialog = true }
+                        .testTag("action_notify_customer"),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFC7D2FE))
                 ) {
@@ -409,9 +432,9 @@ fun DeliveryDetailScreen(
                             .padding(14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.Message, contentDescription = null, tint = Color(0xFF1E1B4B), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.Message, contentDescription = null, tint = Color(0xFF1E1B4B), modifier = Modifier.size(26.dp))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "SMS", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
+                        Text(text = "Notificar", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
                     }
                 }
 
@@ -430,10 +453,51 @@ fun DeliveryDetailScreen(
                             .padding(14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(Icons.Default.QuestionAnswer, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(28.dp))
+                        Icon(Icons.Default.QuestionAnswer, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(26.dp))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "WhatsApp", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
+                        Text(text = "WhatsApp", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E1B4B))
                     }
+                }
+            }
+
+            // Comprobante Oficial, Firma Digital y Código QR Button
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { showReceiptDialog = true }
+                    .testTag("btn_open_digital_receipt"),
+                color = Color(0xFFEFF6FF),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF3B82F6))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2563EB)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Comprobante Oficial Certificado", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(14.dp))
+                            }
+                            Text("Firma digital en pantalla + QR de verificación", fontSize = 11.sp, color = Color(0xFF64748B))
+                        }
+                    }
+                    Icon(Icons.Default.QrCode2, contentDescription = "Ver QR", tint = Color(0xFF2563EB), modifier = Modifier.size(26.dp))
                 }
             }
 
@@ -620,7 +684,7 @@ fun DeliveryDetailScreen(
 
             // Abrir en mapa button
             OutlinedButton(
-                onClick = { onOpenMap(delivery.id) },
+                onClick = { onOpenMap(delivery.latitude ?: 23.1136, delivery.longitude ?: -82.3668) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
@@ -681,6 +745,25 @@ fun DeliveryDetailScreen(
             )
 
             Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Digital Receipt Dialog (Signature + QR Code)
+        if (showReceiptDialog) {
+            DigitalReceiptDialog(
+                delivery = delivery,
+                onDismiss = { showReceiptDialog = false },
+                onConfirmSignature = { signCode ->
+                    // Optionally update note or confirmation
+                }
+            )
+        }
+
+        // Customer Notification Sheet (WhatsApp + SMS)
+        if (showNotificationDialog) {
+            CustomerNotificationDialog(
+                delivery = delivery,
+                onDismiss = { showNotificationDialog = false }
+            )
         }
     }
 }

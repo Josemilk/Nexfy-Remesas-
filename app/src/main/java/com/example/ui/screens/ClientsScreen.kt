@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
@@ -128,17 +129,19 @@ fun ClientsScreen(
                 )
             }
 
-            // Action: Add new client button
-            Button(
-                onClick = { showAddClientDialog = true },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                modifier = Modifier.testTag("add_client_button")
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("+ Nuevo", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Action: Add new client button
+                Button(
+                    onClick = { showAddClientDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.testTag("add_client_button")
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("+ Nuevo", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 
@@ -243,7 +246,7 @@ fun ClientsScreen(
             }
         } else {
             LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.weight(1f)
             ) {
                 items(filteredClients) { client ->
@@ -273,227 +276,159 @@ fun ClientsScreen(
                                 }
                             )
                             .testTag("client_item_${client.id}"),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) Color(0xFFEFF6FF) else MaterialTheme.colorScheme.surface
                         ),
                         border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF2563EB)) else null,
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Header row with checkbox, avatar, name, zone badge & THREE DOTS
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    if (selectedIds.isNotEmpty()) {
-                                        Checkbox(
-                                            checked = isSelected,
-                                            onCheckedChange = { checked ->
-                                                if (checked) selectedIds.add(client.id) else selectedIds.remove(client.id)
-                                            },
-                                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2563EB))
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFF4F46E5)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = initials,
-                                            color = Color.White,
-                                            fontSize = 16.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = client.name,
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = client.phone,
-                                            fontSize = 13.sp,
-                                            color = Color(0xFF64748B)
-                                        )
-                                    }
+                                if (selectedIds.isNotEmpty()) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            if (checked) selectedIds.add(client.id) else selectedIds.remove(client.id)
+                                        },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2563EB))
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
                                 }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(Color(0xFFEEF2FF))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(
-                                            text = client.zone,
-                                            color = Color(0xFF4338CA),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF4F46E5)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = initials,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
 
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
 
-                                    // Explicit Three Dots Menu button
-                                    Box {
-                                        IconButton(
-                                            onClick = { showCardMenu = true },
-                                            modifier = Modifier.size(36.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = "Opciones del cliente",
-                                                tint = Color(0xFF475569),
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = showCardMenu,
-                                            onDismissRequest = { showCardMenu = false }
-                                        ) {
-                                            DropdownMenuItem(
-                                                text = { Text("Ver ficha completa") },
-                                                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF4338CA)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    onClientSelected(client.id)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Nueva entrega para este cliente") },
-                                                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    onNewDeliveryForClient(client.name, client.phone)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Copiar datos del cliente") },
-                                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    val clip = ClipData.newPlainText("Cliente", "Nombre: ${client.name}\nTeléfono: ${client.phone}\nDirección: ${client.address}\nZona: ${client.zone}")
-                                                    clipboard.setPrimaryClip(clip)
-                                                    Toast.makeText(context, "Datos del cliente copiados ✓", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Enviar WhatsApp") },
-                                                leadingIcon = { Icon(Icons.Default.QuestionAnswer, contentDescription = null, tint = Color(0xFF059669)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    val cleanPhone = client.phone.replace(" ", "").replace("+", "")
-                                                    val msg = settings.whatsappMessage
-                                                    try {
-                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encode(msg)}"))
-                                                        context.startActivity(intent)
-                                                    } catch (e: Exception) {
-                                                        Toast.makeText(context, "No se pudo abrir WhatsApp", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Llamar por teléfono") },
-                                                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF2563EB)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${client.phone}"))
-                                                    context.startActivity(intent)
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Eliminar cliente", color = Color(0xFFDC2626)) },
-                                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFDC2626)) },
-                                                onClick = {
-                                                    showCardMenu = false
-                                                    showDeleteConfirmDialog = listOf(client.id)
-                                                }
-                                            )
-                                        }
-                                    }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = client.name,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${client.phone} • ${client.zone}",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF64748B),
+                                        maxLines = 1
+                                    )
                                 }
                             }
 
-                            if (client.address.isNotEmpty()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(text = client.address, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Call Button
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(
-                                    onClick = {
-                                        val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${client.phone}"))
-                                        context.startActivity(intent)
-                                    },
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFEEF2FF))
-                                ) {
-                                    Icon(Icons.Default.Phone, contentDescription = "Llamar", tint = Color(0xFF4338CA))
-                                }
-
-                                // WhatsApp Button
-                                IconButton(
-                                    onClick = {
-                                        val cleanPhone = client.phone.replace(" ", "").replace("+", "")
-                                        val msg = settings.whatsappMessage
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encode(msg)}"))
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=${Uri.encode(msg)}"))
-                                            context.startActivity(intent)
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFD1FAE5))
-                                ) {
-                                    Icon(Icons.Default.QuestionAnswer, contentDescription = "WhatsApp", tint = Color(0xFF059669))
-                                }
-
-                                Spacer(modifier = Modifier.weight(1f))
-
-                                // New Delivery button for this client
-                                Button(
                                     onClick = { onNewDeliveryForClient(client.name, client.phone) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    modifier = Modifier.size(30.dp)
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Nueva entrega", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Nueva entrega",
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                Box {
+                                    IconButton(
+                                        onClick = { showCardMenu = true },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Opciones del cliente",
+                                            tint = Color(0xFF475569),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showCardMenu,
+                                        onDismissRequest = { showCardMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Ver ficha completa") },
+                                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF4338CA)) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                onClientSelected(client.id)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Nueva entrega para este cliente") },
+                                            leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF2563EB)) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                onNewDeliveryForClient(client.name, client.phone)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Copiar datos del cliente") },
+                                            leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                val clip = ClipData.newPlainText("Cliente", "Nombre: ${client.name}\nTeléfono: ${client.phone}\nDirección: ${client.address}\nZona: ${client.zone}")
+                                                clipboard.setPrimaryClip(clip)
+                                                Toast.makeText(context, "Datos del cliente copiados ✓", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Enviar WhatsApp") },
+                                            leadingIcon = { Icon(Icons.Default.QuestionAnswer, contentDescription = null, tint = Color(0xFF059669)) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                val cleanPhone = client.phone.replace(" ", "").replace("+", "")
+                                                val msg = settings.whatsappMessage
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encode(msg)}"))
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "No se pudo abrir WhatsApp", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Llamar por teléfono") },
+                                            leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF2563EB)) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${client.phone}"))
+                                                context.startActivity(intent)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Eliminar cliente", color = Color(0xFFDC2626)) },
+                                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFDC2626)) },
+                                            onClick = {
+                                                showCardMenu = false
+                                                showDeleteConfirmDialog = listOf(client.id)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -516,12 +451,21 @@ fun ClientsScreen(
         AlertDialog(
             onDismissRequest = { showAddClientDialog = false },
             title = {
-                Text(
-                    text = "Agregar nuevo cliente",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E1B4B)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Agregar nuevo cliente",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E1B4B)
+                    )
+                    IconButton(onClick = { showAddClientDialog = false }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = Color(0xFF64748B))
+                    }
+                }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

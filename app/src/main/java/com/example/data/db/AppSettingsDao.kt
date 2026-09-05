@@ -13,6 +13,9 @@ interface AppSettingsDao {
     @Query("SELECT * FROM settings WHERE id = 1 LIMIT 1")
     fun getSettings(): Flow<AppSettings?>
 
+    @Query("SELECT * FROM settings WHERE id = 1 LIMIT 1")
+    suspend fun getSettingsDirect(): AppSettings?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveSettings(settings: AppSettings)
 }

@@ -19,9 +19,11 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven { url = uri("https://jitpack.io") }
   }
 }
 
 rootProject.name = "NexFy Remesas"
 
 include(":app")
+include(":osmand_lib:OsmAnd-java")
