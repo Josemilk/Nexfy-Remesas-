@@ -34,13 +34,12 @@ jobs:
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
 
-      - name: Setup Gradle
+      - name: Setup Gradle (wrapper only)
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '8.9'
-          cache-disabled: false
+          gradle-home-cache-cleanup: true
 
-      - name: Fix Gradle Wrapper & Properties
+      - name: Fix local properties
         run: |
           chmod +x ./gradlew
           echo "sdk.dir=$ANDROID_HOME" > local.properties
