@@ -1,10 +1,10 @@
-name: Build NexFy APK with OsmAnd
+name: NexFy Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -13,17 +13,53 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout repo with submodules
+      - name: Checkout del código y Submódulos
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Java 17
+      # ──────────────────────────────────────────────
+      # CORRECCIÓN AUTOMÁTICA DEL ERROR DE ESCAPES
+      # ──────────────────────────────────────────────
+      - name: Fix unsupported escape sequences in settings.gradle.kts
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            echo "🔧 Corrigiendo escapes incorrectos en settings.gradle.kts..."
+            
+            sed -i 's/includeGroupByRegex("com\\\./includeGroupByRegex("com\\\\./g' settings.gradle.kts
+            sed -i 's/includeGroupByRegex("androidx\\\./includeGroupByRegex("androidx\\\\./g' settings.gradle.kts
+            sed -i "s/includeGroupByRegex('com\\\./includeGroupByRegex('com\\\\./g" settings.gradle.kts
+            sed -i "s/includeGroupByRegex('androidx\\\./includeGroupByRegex('androidx\\\\./g" settings.gradle.kts
+
+            echo "✅ Archivo después de la corrección:"
+            grep -n "includeGroupByRegex" settings.gradle.kts || echo "No se encontraron líneas includeGroupByRegex"
+          else
+            echo "⚠️ No se encontró settings.gradle.kts"
+          fi
+
+      - name: Commit de la corrección (solo si hubo cambios)
+        run: |
+          if git diff --quiet settings.gradle.kts 2>/dev/null; then
+            echo "No hay cambios que commitear"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add settings.gradle.kts
+            git commit -m "fix: escape sequences in settings.gradle.kts (com\\.android.* / com\\.google.*)"
+            git push
+          fi
+
+      # ──────────────────────────────────────────────
+      # SETUP DEL ENTORNO
+      # ──────────────────────────────────────────────
+      - name: Configurar JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -34,26 +70,32 @@ jobs:
           echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
 
-      - name: Setup Gradle (wrapper only)
-        uses: gradle/actions/setup-gradle@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-home-cache-cleanup: true
 
-      - name: Fix local properties
+      - name: Fix local.properties + permisos
         run: |
           chmod +x ./gradlew
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
 
-      - name: Build Debug APK (Fat + Legacy)
-        run: ./gradlew :app:assembleFatLegacyDebug --no-daemon --stacktrace
+      # ──────────────────────────────────────────────
+      # COMPILACIÓN
+      # ──────────────────────────────────────────────
+      - name: Compilar APK (Debug)
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
         env:
           ANDROID_NDK: ${{ env.ANDROID_NDK }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
-      - name: Upload APK Artifact
+      - name: Subir APK generado
         uses: actions/upload-artifact@v4
         with:
-          name: Nexfy-OsmAnd-APK
-          path: app/build/outputs/apk/fat/legacy/debug/app-fat-legacy-debug.apk
+          name: nexfy-app-debug
+          path: |
+            app/build/outputs/apk/**/debug/*.apk
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
           retention-days: 7
