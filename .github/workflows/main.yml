@@ -32,32 +32,48 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
-      - name: Downgrade AGP 9.1.1 -> 8.7.3 to fix your build
+      - name: Fix build.gradle.kts for AGP 8.7.3 + Kotlin 1.9.22
         run: |
-          echo "--- ANTES ---"
-          head -n 10 app/build.gradle.kts
-          # Cambia AGP 9.1.1 por 8.7.3
-          sed -i "s/version: '9.1.1'/version: '8.7.3'/g" app/build.gradle.kts
-          sed -i 's/version = "9.1.1"/version = "8.7.3"/g' app/build.gradle.kts
-          sed -i "s/id(\"com.android.application\") version \"9.1.1\"/id(\"com.android.application\") version \"8.7.3\"/g" app/build.gradle.kts
-          sed -i "s/id(\"com.android.library\") version \"9.1.1\"/id(\"com.android.library\") version \"8.7.3\"/g" app/build.gradle.kts
-          
-          # Tambien arregla si esta en libs.versions.toml
-          if [ -f "gradle/libs.versions.toml" ]; then
-            sed -i 's/9.1.1/8.7.3/g' gradle/libs.versions.toml || true
-          fi
-          # Arregla Kotlin para que sea compatible con AGP 8.7.3
-          sed -i "s/2.0.20/1.9.22/g" app/build.gradle.kts || true
-          
-          echo "--- DESPUES ---"
-          head -n 10 app/build.gradle.kts
+          python3 << 'PY'
+          import pathlib
+          path = pathlib.Path("app/build.gradle.kts")
+          text = path.read_text()
 
-      - name: Clean gradle.properties
+          # 1. Bajar AGP 9.1.1 -> 8.7.3
+          text = text.replace('9.1.1', '8.7.3')
+          # 2. Bajar Kotlin 2.x -> 1.9.22 si existe
+          text = text.replace('2.0.20', '1.9.22').replace('2.0.21', '1.9.22').replace('2.0.0', '1.9.22')
+
+          # 3. FIX del error de linea 92 - reemplazar bloque kotlin { compilerOptions }
+          # Borra el bloque problematico de Kotlin 2.0
+          import re
+          # Reemplaza kotlin { compilerOptions { jvmTarget.set(...) } }
+          pattern = r"kotlin\s*\{\s*compilerOptions\s*\{\s*jvmTarget\.set\(.*?\)\s*\}\s*\}"
+          replacement = 'android {\n    // fixed by workflow\n}\n// kotlin block removed, using kotlinOptions below'
+          text = re.sub(pattern, '', text, flags=re.DOTALL)
+
+          # 4. Asegura que exista kotlinOptions dentro de android
+          if 'kotlinOptions' not in text:
+              # Inserta kotlinOptions antes del ultimo } de android
+              text = text.replace('compileSdk', 'kotlinOptions {\n            jvmTarget = "17"\n        }\n        compileSdk', 1) if 'kotlinOptions' not in text else text
+              # fallback: si no encontro compileSdk, lo agrega en buildTypes
+              if 'kotlinOptions' not in text and 'buildTypes' in text:
+                  text = text.replace('buildTypes', 'kotlinOptions {\n            jvmTarget = "17"\n        }\n        buildTypes')
+
+          # 5. Tambien asegurar java 17
+          if 'jvmTarget = "17"' not in text:
+              text += '\nandroid { kotlinOptions { jvmTarget = "17" } }\n'
+
+          path.write_text(text)
+          print(text[:2000])
+          PY
+
+      - name: Clean properties
         run: |
           sed -i '/android.enableJetifier/d' gradle.properties || true
           sed -i '/android.disallowKotlinSourceSets/d' gradle.properties || true
+          sed -i '/android.nonFinalResIds/d' gradle.properties || true
           echo "android.useAndroidX=true" >> gradle.properties
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> gradle.properties
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -66,9 +82,6 @@ jobs:
 
       - name: Grant permission
         run: chmod +x gradlew
-
-      - name: Clean build
-        run: ./gradlew clean --no-daemon --refresh-dependencies
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
