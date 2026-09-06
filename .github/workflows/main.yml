@@ -1,4 +1,3 @@
-
 name: NexFy Android CI
 
 on:
@@ -9,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # 
+  contents: write
 
 jobs:
   build:
@@ -84,6 +83,15 @@ jobs:
           chmod +x ./gradlew
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
+
+      # ──────────────────────────────────────────────
+      # FORZAR LA PROPIEDAD QUE FALTA
+      # ──────────────────────────────────────────────
+      - name: Force allow Kotlin sourceSets
+        run: |
+          echo "android.disallowKotlinSourceSets=false" >> gradle.properties
+          echo "----- Contenido de gradle.properties -----"
+          cat gradle.properties
 
       # ──────────────────────────────────────────────
       # COMPILACIÓN
