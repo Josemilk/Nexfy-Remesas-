@@ -85,13 +85,30 @@ jobs:
           echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
 
       # ──────────────────────────────────────────────
-      # FORZAR LA PROPIEDAD QUE FALTA
+      # FORZAR LA PROPIEDAD DE KOTLIN SOURCESETS
       # ──────────────────────────────────────────────
       - name: Force allow Kotlin sourceSets
         run: |
           echo "android.disallowKotlinSourceSets=false" >> gradle.properties
           echo "----- Contenido de gradle.properties -----"
           cat gradle.properties
+
+      # ──────────────────────────────────────────────
+      # ARREGLO DE CLASES DUPLICADAS DE PROTOBUF (OsmAnd)
+      # ──────────────────────────────────────────────
+      - name: Fix OsmAnd protobuf duplicate classes
+        run: |
+          if [ -f app/build.gradle.kts ]; then
+            echo "🔧 Aplicando exclude de protobuf en OsmAnd-java..."
+
+            # Reemplaza la línea de OsmAnd-java por la versión con exclude
+            sed -i 's|implementation("net.osmand:OsmAnd-java:master-snapshot:android@jar")|implementation("net.osmand:OsmAnd-java:master-snapshot:android@jar") {\n    exclude(group = "com.google.protobuf")\n  }|' app/build.gradle.kts
+
+            echo "✅ Cambio aplicado:"
+            grep -A 4 'OsmAnd-java' app/build.gradle.kts || true
+          else
+            echo "⚠️ No se encontró app/build.gradle.kts"
+          fi
 
       # ──────────────────────────────────────────────
       # COMPILACIÓN
