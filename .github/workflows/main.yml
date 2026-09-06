@@ -1,93 +1,58 @@
-name: Build Nexfy APK
+name: Build NexFy APK with OsmAnd
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout repo (shallow, no recursive submodules)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Set up JDK 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Fix Gradle Wrapper to 8.9
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK & Build Tools
         run: |
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-all.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
 
-      - name: Fix build.gradle.kts for AGP 8.7.3 + Kotlin 1.9.22
-        run: |
-          python3 << 'PY'
-          import pathlib
-          path = pathlib.Path("app/build.gradle.kts")
-          text = path.read_text()
-
-          # 1. Bajar AGP 9.1.1 -> 8.7.3
-          text = text.replace('9.1.1', '8.7.3')
-          # 2. Bajar Kotlin 2.x -> 1.9.22 si existe
-          text = text.replace('2.0.20', '1.9.22').replace('2.0.21', '1.9.22').replace('2.0.0', '1.9.22')
-
-          # 3. FIX del error de linea 92 - reemplazar bloque kotlin { compilerOptions }
-          # Borra el bloque problematico de Kotlin 2.0
-          import re
-          # Reemplaza kotlin { compilerOptions { jvmTarget.set(...) } }
-          pattern = r"kotlin\s*\{\s*compilerOptions\s*\{\s*jvmTarget\.set\(.*?\)\s*\}\s*\}"
-          replacement = 'android {\n    // fixed by workflow\n}\n// kotlin block removed, using kotlinOptions below'
-          text = re.sub(pattern, '', text, flags=re.DOTALL)
-
-          # 4. Asegura que exista kotlinOptions dentro de android
-          if 'kotlinOptions' not in text:
-              # Inserta kotlinOptions antes del ultimo } de android
-              text = text.replace('compileSdk', 'kotlinOptions {\n            jvmTarget = "17"\n        }\n        compileSdk', 1) if 'kotlinOptions' not in text else text
-              # fallback: si no encontro compileSdk, lo agrega en buildTypes
-              if 'kotlinOptions' not in text and 'buildTypes' in text:
-                  text = text.replace('buildTypes', 'kotlinOptions {\n            jvmTarget = "17"\n        }\n        buildTypes')
-
-          # 5. Tambien asegurar java 17
-          if 'jvmTarget = "17"' not in text:
-              text += '\nandroid { kotlinOptions { jvmTarget = "17" } }\n'
-
-          path.write_text(text)
-          print(text[:2000])
-          PY
-
-      - name: Clean properties
-        run: |
-          sed -i '/android.enableJetifier/d' gradle.properties || true
-          sed -i '/android.disallowKotlinSourceSets/d' gradle.properties || true
-          sed -i '/android.nonFinalResIds/d' gradle.properties || true
-          echo "android.useAndroidX=true" >> gradle.properties
-
-      - name: Setup Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle (wrapper)
+        uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: 8.9
+          gradle-home-cache-cleanup: true
 
-      - name: Grant permission
-        run: chmod +x gradlew
+      - name: Fix local properties
+        run: |
+          chmod +x ./gradlew
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build Debug APK (Fat + Legacy)
+        run: ./gradlew :app:assembleFatLegacyDebug --no-daemon --stacktrace
+        env:
+          ANDROID_NDK: ${{ env.ANDROID_NDK }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Nexfy-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Nexfy-OsmAnd-APK
+          path: app/build/outputs/apk/fat/legacy/debug/app-fat-legacy-debug.apk
+          retention-days: 7

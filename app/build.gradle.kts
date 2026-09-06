@@ -89,11 +89,8 @@ android {
     isCoreLibraryDesugaringEnabled = true
   }
 
-  kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-    }
-
+  kotlinOptions {
+    jvmTarget = "17"
   }
 
   buildFeatures {
@@ -101,9 +98,7 @@ android {
     buildConfig = true
   }
 
-  composeOptions {
-    kotlinCompilerExtensionVersion = "1.5.14"
-  }
+  // Kotlin 2.0+ tiene el Compose Compiler integrado — NO se necesita composeOptions
 
   lint {
     abortOnError = false
@@ -188,24 +183,24 @@ dependencies {
   implementation("androidx.gridlayout:gridlayout:1.1.0")
   implementation("androidx.cardview:cardview:1.0.0")
   implementation("androidx.appcompat:appcompat:1.7.1")
-  implementation("com.google.android.material:material:1.14.0")
-  implementation("androidx.browser:browser:1.0.0")
-  implementation("androidx.preference:preference:1.1.0")
-  implementation("androidx.lifecycle:lifecycle-process:2.6.0")
-  implementation("androidx.activity:activity:1.10.1")
+  implementation("com.google.android.material:material:1.12.0")
+  implementation("androidx.browser:browser:1.8.0")
+  implementation("androidx.preference:preference:1.2.1")
+  implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+  implementation("androidx.activity:activity:1.9.3")
 
   implementation("commons-logging:commons-logging:1.2")
-  implementation("commons-codec:commons-codec:1.11")
-  implementation("org.apache.commons:commons-compress:1.17")
+  implementation("commons-codec:commons-codec:1.17.1")
+  implementation("org.apache.commons:commons-compress:1.27.1")
   implementation("com.moparisthebest:junidecode:0.1.1")
-  implementation("org.immutables:gson:2.5.0")
+  implementation("org.immutables:gson:2.10.1")
   implementation("com.vividsolutions:jts-core:1.14.0")
   implementation("com.google.openlocationcode:openlocationcode:1.0.4")
-  implementation("com.android.billingclient:billing:8.0.0")
+  implementation("com.android.billingclient:billing:7.1.1")
 
   implementation("com.squareup.picasso:picasso:2.71828")
   implementation("me.zhanghai.android.materialprogressbar:library:1.4.2")
-  implementation("org.mozilla:rhino:1.7.9")
+  implementation("org.mozilla:rhino:1.7.15")
 
   implementation("com.getkeepsafe.taptargetview:taptargetview:1.15.0") {
     exclude(group = "com.android.support")
@@ -223,21 +218,21 @@ dependencies {
   implementation("net.osmand:antpluginlib:3.8.0@aar")
   implementation("com.google.android.play:review:2.0.2")
 
-  implementation("androidx.core:core:1.16.0")
-  implementation("androidx.car.app:app:1.7.0")
-  implementation("androidx.car.app:app-projected:1.7.0")
+  implementation("androidx.core:core:1.13.1")
+  implementation("androidx.car.app:app:1.4.0")
+  implementation("androidx.car.app:app-projected:1.4.0")
 
-  implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.20")
-  implementation("org.jetbrains.kotlin:kotlin-reflect:2.1.20")
-  implementation("org.jetbrains.kotlin:kotlin-stdlib-common:2.1.20")
-  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+  implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
+  implementation("org.jetbrains.kotlin:kotlin-reflect:2.0.21")
+  implementation("org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21")
+  implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
   implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
-  implementation("com.squareup.okio:okio:3.9.0")
+  implementation("com.squareup.okio:okio:3.9.1")
   implementation("co.touchlab:stately-concurrent-collections:2.1.0")
 
-  implementation("androidx.sqlite:sqlite:2.3.1")
-  implementation("androidx.sqlite:sqlite-framework:2.3.1")
+  implementation("androidx.sqlite:sqlite:2.4.0")
+  implementation("androidx.sqlite:sqlite-framework:2.4.0")
   implementation("net.sf.kxml:kxml2:2.3.0")
   implementation("com.facebook.shimmer:shimmer:0.5.0@aar")
 
