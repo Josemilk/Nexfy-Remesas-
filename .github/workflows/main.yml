@@ -1,58 +1,664 @@
-name: Build NexFy APK with OsmAnd
+name: NexFy Android CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - master
+
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
+# El workflow solamente compila.
+# NO hace commit ni push.
+permissions:
+  contents: read
+
 jobs:
+
   build:
+
+    name: Build NexFy Remesas
+
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+
+    timeout-minutes: 120
 
     steps:
-      - name: Checkout repo (shallow, no recursive submodules)
+
+      # ==========================================================
+      # 1. CHECKOUT
+      # ==========================================================
+      - name: Checkout del proyecto
+
         uses: actions/checkout@v4
+
         with:
+          submodules: recursive
           fetch-depth: 1
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
 
-      - name: Setup Android SDK
+      # ==========================================================
+      # 2. ASEGURAR GRADLE 9.3.1
+      #
+      # AGP 9.1.1 requiere Gradle 9.3.1 o superior.
+      #
+      # Se modifica solamente el workspace del runner.
+      # ==========================================================
+      - name: Actualizar Gradle Wrapper a 9.3.1
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          WRAPPER="gradle/wrapper/gradle-wrapper.properties"
+
+          echo "============================================"
+          echo "GRADLE WRAPPER"
+          echo "============================================"
+
+          if [ ! -f "$WRAPPER" ]; then
+            echo "ERROR: No existe:"
+            echo "$WRAPPER"
+            exit 1
+          fi
+
+          echo "Antes:"
+          grep "distributionUrl" "$WRAPPER" || true
+
+          # Fuerza Gradle 9.3.1
+          sed -i \
+            -E 's#gradle-[0-9]+\.[0-9]+(\.[0-9]+)?-bin\.zip#gradle-9.3.1-bin.zip#g' \
+            "$WRAPPER"
+
+          echo
+          echo "Después:"
+          grep "distributionUrl" "$WRAPPER"
+
+          if ! grep -q "gradle-9.3.1-bin.zip" "$WRAPPER"; then
+            echo "ERROR: No se pudo configurar Gradle 9.3.1."
+            exit 1
+          fi
+
+          echo
+          echo "OK: Gradle 9.3.1 configurado."
+
+
+      # ==========================================================
+      # 3. JDK 17
+      # ==========================================================
+      - name: Configurar JDK 17
+
+        uses: actions/setup-java@v4
+
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
+
+      # ==========================================================
+      # 4. ANDROID SDK
+      # ==========================================================
+      - name: Configurar Android SDK
+
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK & Build Tools
-        run: |
-          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "build-tools;36.0.0"
-          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
 
-      - name: Setup Gradle (wrapper)
-        uses: gradle/actions/setup-gradle@v3
+      # ==========================================================
+      # 5. INSTALAR SDK / NDK / CMAKE
+      # ==========================================================
+      - name: Instalar herramientas Android
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/27.0.12077973" \
+            >> "$GITHUB_ENV"
+
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" \
+            >> "$GITHUB_ENV"
+
+
+      # ==========================================================
+      # 6. GRADLE ACTIONS
+      # ==========================================================
+      - name: Configurar Gradle
+
+        uses: gradle/actions/setup-gradle@v4
+
         with:
           gradle-home-cache-cleanup: true
 
-      - name: Fix local properties
-        run: |
-          chmod +x ./gradlew
-          echo "sdk.dir=$ANDROID_HOME" > local.properties
-          echo "ndk.dir=$ANDROID_HOME/ndk/27.0.12077973" >> local.properties
 
-      - name: Build Debug APK (Fat + Legacy)
-        run: ./gradlew :app:assembleFatLegacyDebug --no-daemon --stacktrace
+      # ==========================================================
+      # 7. COMPROBAR VERSIÓN REAL DE GRADLE
+      #
+      # Esto nos permite detectar inmediatamente si GitHub está
+      # usando otra versión.
+      # ==========================================================
+      - name: Verificar Gradle 9.3.1
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          chmod +x ./gradlew
+
+          echo "============================================"
+          echo "VERSIÓN DE GRADLE UTILIZADA"
+          echo "============================================"
+
+          ./gradlew --version
+
+          echo
+          echo "============================================"
+          echo "WRAPPER"
+          echo "============================================"
+
+          grep "distributionUrl" \
+            gradle/wrapper/gradle-wrapper.properties
+
+          echo
+          echo "Se requiere Gradle 9.3.1."
+
+
+      # ==========================================================
+      # 8. LOCAL.PROPERTIES
+      # ==========================================================
+      - name: Crear local.properties
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          ndk.dir=$ANDROID_HOME/ndk/27.0.12077973
+          EOF
+
+          echo "local.properties:"
+          cat local.properties
+
+
+      # ==========================================================
+      # 9. KOTLIN SOURCESETS
+      # ==========================================================
+      - name: Configurar Kotlin SourceSets
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          if [ ! -f gradle.properties ]; then
+            touch gradle.properties
+          fi
+
+          if grep -q "^android.disallowKotlinSourceSets=" gradle.properties; then
+
+            sed -i \
+              's/^android.disallowKotlinSourceSets=.*/android.disallowKotlinSourceSets=false/' \
+              gradle.properties
+
+          else
+
+            echo "android.disallowKotlinSourceSets=false" \
+              >> gradle.properties
+
+          fi
+
+          echo "Configuración:"
+          grep "android.disallowKotlinSourceSets" \
+            gradle.properties
+
+
+      # ==========================================================
+      # 10. CORREGIR IMPORT R
+      #
+      # PaymentContributionDialog.kt actualmente utiliza:
+      #
+      # import com.example.R
+      #
+      # pero el namespace real es:
+      #
+      # com.aistudio.nexfyremesas.app
+      #
+      # La modificación es temporal.
+      # ==========================================================
+      - name: Corregir import R
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          FILE="app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt"
+
+          echo "============================================"
+          echo "CORRIGIENDO PaymentContributionDialog.kt"
+          echo "============================================"
+
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: No existe:"
+            echo "$FILE"
+            exit 1
+          fi
+
+          echo "Antes:"
+          grep -n "^import .*R" "$FILE" || true
+
+          sed -i \
+            's/^import com\.example\.R$/import com.aistudio.nexfyremesas.app.R/' \
+            "$FILE"
+
+          echo
+          echo "Después:"
+          grep -n "^import .*R" "$FILE" || true
+
+          if grep -q "^import com\.example\.R$" "$FILE"; then
+            echo "ERROR: todavía existe import com.example.R"
+            exit 1
+          fi
+
+          echo
+          echo "OK: import R corregido."
+
+
+      # ==========================================================
+      # 11. ELIMINAR EXCLUDE INCORRECTO DE OSMAND
+      #
+      # El exclude NO elimina clases que ya están dentro del JAR.
+      # ==========================================================
+      - name: Eliminar exclude incorrecto de OsmAnd
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          FILE="app/build.gradle.kts"
+
+          python3 <<'PY'
+
+          from pathlib import Path
+          import re
+
+          path = Path("app/build.gradle.kts")
+
+          text = path.read_text()
+
+          pattern = re.compile(
+              r'implementation\("net\.osmand:OsmAnd-java:master-snapshot:android@jar"\)'
+              r'\s*\{\s*'
+              r'exclude\(group\s*=\s*"com\.google\.protobuf"\)'
+              r'\s*\}',
+              re.MULTILINE
+          )
+
+          replacement = (
+              'implementation("net.osmand:OsmAnd-java:master-snapshot:android@jar")'
+          )
+
+          new_text, count = pattern.subn(
+              replacement,
+              text
+          )
+
+          path.write_text(new_text)
+
+          print(
+              f"Bloques exclude eliminados: {count}"
+          )
+
+          PY
+
+          echo
+          echo "OsmAnd:"
+          grep -A4 -B2 \
+            "OsmAnd-java" \
+            app/build.gradle.kts || true
+
+
+      # ==========================================================
+      # 12. RESOLVER DEPENDENCIAS
+      #
+      # Importante:
+      # usamos la configuración REAL del flavor existente.
+      # ==========================================================
+      - name: Resolver dependencias OsmAnd
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          ./gradlew \
+            :app:dependencies \
+            --configuration armonlyLegacyDebugCompileClasspath \
+            --refresh-dependencies \
+            --no-daemon \
+            --stacktrace
+
+
+      # ==========================================================
+      # 13. LOCALIZAR OsmAnd-java
+      # ==========================================================
+      - name: Localizar OsmAnd-java
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          echo "============================================"
+          echo "BUSCANDO OsmAnd-java"
+          echo "============================================"
+
+          find "$HOME/.gradle/caches/modules-2/files-2.1" \
+            -type f \
+            \( -name "*.jar" -o -name "*.aar" \) \
+            | grep -i "osmand" \
+            | sort || true
+
+
+      # ==========================================================
+      # 14. SANEAR SOLAMENTE OsmAnd-java.jar
+      #
+      # Elimina:
+      #
+      # com/google/protobuf/**
+      #
+      # de la copia descargada por Gradle.
+      #
+      # NO modifica otros JAR/AAR de OsmAnd.
+      # ==========================================================
+      - name: Sanear OsmAnd-java protobuf
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          python3 <<'PY'
+
+          from pathlib import Path
+          import zipfile
+          import shutil
+
+
+          root = (
+              Path.home()
+              / ".gradle"
+              / "caches"
+              / "modules-2"
+              / "files-2.1"
+              / "net.osmand"
+              / "OsmAnd-java"
+          )
+
+
+          print("Buscando en:")
+          print(root)
+
+
+          if not root.exists():
+
+              print(
+                  "ERROR: No existe la caché de OsmAnd-java."
+              )
+
+              raise SystemExit(1)
+
+
+          jars = [
+              p
+              for p in root.rglob("*.jar")
+              if p.is_file()
+          ]
+
+
+          print()
+          print("JAR encontrados:")
+
+
+          for jar in jars:
+              print(jar)
+
+
+          if not jars:
+
+              print(
+                  "ERROR: No se encontró OsmAnd-java.jar."
+              )
+
+              raise SystemExit(1)
+
+
+          total_removed = 0
+
+
+          for jar in jars:
+
+              print()
+              print("============================================")
+              print("Procesando:")
+              print(jar)
+              print("============================================")
+
+
+              with zipfile.ZipFile(
+                  jar,
+                  "r"
+              ) as zin:
+
+                  entries = zin.infolist()
+
+
+                  protobuf = [
+                      item
+                      for item in entries
+                      if item.filename.startswith(
+                          "com/google/protobuf/"
+                      )
+                  ]
+
+
+                  if not protobuf:
+
+                      print(
+                          "Este JAR no contiene "
+                          "com/google/protobuf/"
+                      )
+
+                      continue
+
+
+                  print(
+                      "Entradas protobuf:",
+                      len(protobuf)
+                  )
+
+
+                  temporary = jar.with_suffix(
+                      ".sanitized.jar"
+                  )
+
+
+                  with zipfile.ZipFile(
+                      temporary,
+                      "w",
+                      compression=zipfile.ZIP_DEFLATED
+                  ) as zout:
+
+                      for item in entries:
+
+                          if item.filename.startswith(
+                              "com/google/protobuf/"
+                          ):
+                              continue
+
+                          zout.writestr(
+                              item,
+                              zin.read(item.filename)
+                          )
+
+
+              shutil.move(
+                  temporary,
+                  jar
+              )
+
+
+              total_removed += len(protobuf)
+
+
+              print(
+                  "OK: eliminadas",
+                  len(protobuf),
+                  "entradas protobuf."
+              )
+
+
+          print()
+          print("============================================")
+          print("RESULTADO")
+          print("============================================")
+
+          print(
+              "Entradas protobuf eliminadas:",
+              total_removed
+          )
+
+          PY
+
+
+      # ==========================================================
+      # 15. LIMPIAR PROYECTO
+      # ==========================================================
+      - name: Limpiar proyecto
+
+        shell: bash
+
+        run: |
+
+          set -e
+
+          ./gradlew \
+            clean \
+            --no-daemon \
+            --stacktrace
+
+
+      # ==========================================================
+      # 16. COMPILAR DEBUG
+      #
+      # assembleDebug conserva automáticamente las combinaciones
+      # de flavors definidas en app/build.gradle.kts.
+      # ==========================================================
+      - name: Compilar APK Debug
+
+        shell: bash
+
         env:
+
           ANDROID_NDK: ${{ env.ANDROID_NDK }}
+
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
-      - name: Upload APK Artifact
+        run: |
+
+          set -e
+
+          ./gradlew \
+            assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+
+      # ==========================================================
+      # 17. MOSTRAR APK
+      # ==========================================================
+      - name: Mostrar APK generados
+
+        shell: bash
+
+        run: |
+
+          echo "============================================"
+          echo "APK GENERADOS"
+          echo "============================================"
+
+          find \
+            app/build/outputs/apk \
+            -type f \
+            -name "*.apk" \
+            -print \
+            | sort || true
+
+
+      # ==========================================================
+      # 18. SUBIR APK
+      # ==========================================================
+      - name: Subir APK Debug
+
         uses: actions/upload-artifact@v4
+
         with:
-          name: Nexfy-OsmAnd-APK
-          path: app/build/outputs/apk/fat/legacy/debug/app-fat-legacy-debug.apk
-          retention-days: 7
+
+          name: nexfy-remesas-debug
+
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/apk/debug/*.apk
+
+          if-no-files-found: error
+
+          retention-days: 14
+
+
+      # ==========================================================
+      # 19. COMPROBAR QUE NO SE HACE COMMIT/PUSH
+      # ==========================================================
+      - name: Verificar repositorio
+
+        shell: bash
+
+        run: |
+
+          echo "============================================"
+          echo "ESTADO FINAL"
+          echo "============================================"
+
+          git status --short || true
+
+          echo
+          echo "CI terminado."
+          echo "No se ejecuta git commit."
+          echo "No se ejecuta git push."
