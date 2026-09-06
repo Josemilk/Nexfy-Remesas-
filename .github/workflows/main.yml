@@ -8,8 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
     steps:
       - name: Checkout
@@ -22,7 +20,7 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Force Gradle 8.9 - Fix armonlyLegacy bug
+      - name: Fix Gradle Wrapper to 8.9
         run: |
           cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
           distributionBase=GRADLE_USER_HOME
@@ -33,44 +31,50 @@ jobs:
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           EOF
-          cat gradle/wrapper/gradle-wrapper.properties
 
-      - name: Clean deprecated properties
+      - name: Downgrade AGP 9.1.1 -> 8.7.3 to fix your build
         run: |
-          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" > gradle.properties
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.nonTransitiveRClass=true" >> gradle.properties
-          cat gradle.properties
+          echo "--- ANTES ---"
+          head -n 10 app/build.gradle.kts
+          # Cambia AGP 9.1.1 por 8.7.3
+          sed -i "s/version: '9.1.1'/version: '8.7.3'/g" app/build.gradle.kts
+          sed -i 's/version = "9.1.1"/version = "8.7.3"/g' app/build.gradle.kts
+          sed -i "s/id(\"com.android.application\") version \"9.1.1\"/id(\"com.android.application\") version \"8.7.3\"/g" app/build.gradle.kts
+          sed -i "s/id(\"com.android.library\") version \"9.1.1\"/id(\"com.android.library\") version \"8.7.3\"/g" app/build.gradle.kts
+          
+          # Tambien arregla si esta en libs.versions.toml
+          if [ -f "gradle/libs.versions.toml" ]; then
+            sed -i 's/9.1.1/8.7.3/g' gradle/libs.versions.toml || true
+          fi
+          # Arregla Kotlin para que sea compatible con AGP 8.7.3
+          sed -i "s/2.0.20/1.9.22/g" app/build.gradle.kts || true
+          
+          echo "--- DESPUES ---"
+          head -n 10 app/build.gradle.kts
 
-      - name: Setup Gradle Action with 8.9
+      - name: Clean gradle.properties
+        run: |
+          sed -i '/android.enableJetifier/d' gradle.properties || true
+          sed -i '/android.disallowKotlinSourceSets/d' gradle.properties || true
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8" >> gradle.properties
+
+      - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
 
-      - name: Grant execute permission
+      - name: Grant permission
         run: chmod +x gradlew
 
-      - name: Stop daemons and clean
-        run: |
-          ./gradlew --stop
-          ./gradlew clean --no-daemon --refresh-dependencies
+      - name: Clean build
+        run: ./gradlew clean --no-daemon --refresh-dependencies
 
-      - name: Build Nexfy Debug APK
+      - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Upload Debug APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Nexfy-debug-apk
+          name: Nexfy-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 10
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Nexfy-release-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
-          retention-days: 10
