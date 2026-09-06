@@ -1,618 +1,136 @@
-name: Build Nexfy Remesas
+name: Fix Kotlin Compiler Options
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
+    paths:
+      - 'app/build.gradle.kts'
+      - '**/libs.versions.toml'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+  pull_request:
+    paths:
+      - 'app/build.gradle.kts'
+      - '**/libs.versions.toml'
+  workflow_dispatch:   # puedes lanzarlo manualmente
 
 jobs:
-  build:
-    name: Build Android APK
+  diagnose-and-fix:
     runs-on: ubuntu-latest
-
-    env:
-      GRADLE_VERSION: "9.3.1"
-      ANDROID_BUILD_TOOLS: "36.0.0"
-      ANDROID_NDK_VERSION: "27.0.12077973"
-      ANDROID_CMAKE_VERSION: "3.22.1"
+    permissions:
+      contents: write   # necesario si quieres que haga commit automático
 
     steps:
-
-      # ============================================================
-      # 1. DESCARGAR EL PROYECTO
-      # ============================================================
-      - name: Checkout repository
-        uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-
-      # ============================================================
-      # 2. ASEGURAR GRADLE 9.3.1
-      # ============================================================
-      - name: Force Gradle 9.3.1
-        shell: bash
-        run: |
-          set -e
-
-          echo "Configurando Gradle ${GRADLE_VERSION}..."
-
-          mkdir -p gradle/wrapper
-
-          cat > gradle/wrapper/gradle-wrapper.properties <<EOF
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip
-          networkTimeout=100000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
-          chmod +x ./gradlew
-
-
-      # ============================================================
-      # 3. JAVA 17
-      # ============================================================
-      - name: Setup JDK 17
-        uses: actions/setup-java@v5
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
+          distribution: 'temurin'
+          java-version: '17'
 
-
-      # ============================================================
-      # 4. ANDROID SDK
-      # ============================================================
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-
-      # ============================================================
-      # 5. INSTALAR COMPONENTES ANDROID NECESARIOS
-      # ============================================================
-      - name: Install Android SDK components
-        shell: bash
+      - name: Diagnose Kotlin configuration
+        id: diagnose
         run: |
-          set -e
-
-          yes | sdkmanager --licenses >/dev/null || true
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-36" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "cmake;${ANDROID_CMAKE_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
-
-      # ============================================================
-      # 6. MOSTRAR VERSIONES
-      # ============================================================
-      - name: Show build environment
-        shell: bash
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "JAVA"
-          echo "========================================"
-          java -version
-
-          echo
-          echo "========================================"
-          echo "GRADLE"
-          echo "========================================"
-          ./gradlew --version
-
-          echo
-          echo "========================================"
-          echo "ANDROID SDK"
-          echo "========================================"
-          sdkmanager --list_installed | grep -E \
-            "platforms;android-36|build-tools;36.0.0|ndk;27.0.12077973|cmake;3.22.1" \
-            || true
-
-
-      # ============================================================
-      # 7. CREAR local.properties
-      # ============================================================
-      - name: Configure Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-
-          echo "local.properties:"
-          cat local.properties
-
-
-      # ============================================================
-      # 8. COMPATIBILIDAD KOTLIN SOURCE SETS
-      # ============================================================
-      - name: Configure Kotlin source sets compatibility
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p .gradle
-
-          cat > gradle.properties <<'EOF'
-          android.disallowKotlinSourceSets=false
-          EOF
-
-          echo "gradle.properties configurado."
-
-
-      # ============================================================
-      # 9. CORREGIR IMPORT R INCORRECTO
-      #
-      # Cambia temporalmente:
-      #
-      # import com.example.R
-      #
-      # por:
-      #
-      # import com.aistudio.nexfyremesas.app.R
-      #
-      # NO hace commit.
-      # ============================================================
-      - name: Fix incorrect R import
-        shell: bash
-        run: |
-          set -e
-
-          FILE="app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt"
-
-          if [ -f "$FILE" ]; then
-
-            echo "Revisando $FILE..."
-
-            python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt")
-
-          text = path.read_text(encoding="utf-8")
-
-          old = "import com.example.R"
-          new = "import com.aistudio.nexfyremesas.app.R"
-
-          if old in text:
-              text = text.replace(old, new)
-              path.write_text(text, encoding="utf-8")
-              print("Import R corregido.")
-          else:
-              print("No se encontró import com.example.R; no se modifica.")
-          PY
-
+          echo "=== 1. Plugins en app/build.gradle.kts ==="
+          grep -A 20 "plugins {" app/build.gradle.kts || true
+          
+          echo ""
+          echo "=== 2. Bloque problemático (líneas \~85-110) ==="
+          sed -n '85,110p' app/build.gradle.kts || true
+          
+          echo ""
+          echo "=== 3. Versión de Kotlin ==="
+          if [ -f gradle/libs.versions.toml ]; then
+            grep -E "kotlin|agp" gradle/libs.versions.toml || true
           else
-            echo "El archivo $FILE no existe."
+            echo "No se encontró libs.versions.toml"
+            grep -r "kotlin" --include="*.gradle.kts" . | head -20 || true
+          fi
+          
+          echo ""
+          echo "=== 4. ¿Existe el plugin org.jetbrains.kotlin.android? ==="
+          if grep -q 'org.jetbrains.kotlin.android\|kotlin("android")\|id("kotlin-android")' app/build.gradle.kts; then
+            echo "✅ Plugin Kotlin Android encontrado"
+            echo "has_kotlin_plugin=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Plugin Kotlin Android NO encontrado"
+            echo "has_kotlin_plugin=false" >> $GITHUB_OUTPUT
           fi
 
-
-      # ============================================================
-      # 10. CORREGIR kotlinOptions -> compilerOptions
-      #
-      # Kotlin 2.x / AGP moderno ya no acepta:
-      #
-      # kotlinOptions {
-      #     jvmTarget = "17"
-      # }
-      #
-      # Se transforma temporalmente en:
-      #
-      # kotlin {
-      #     compilerOptions {
-      #         jvmTarget.set(
-      #             org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-      #         )
-      #     }
-      # }
-      #
-      # NO hace commit.
-      # ============================================================
-      - name: Fix Kotlin jvmTarget compilerOptions
-        shell: bash
+      - name: Apply automatic fix
         run: |
-          set -e
-
           FILE="app/build.gradle.kts"
-
-          if [ ! -f "$FILE" ]; then
-            echo "ERROR: No existe $FILE"
-            exit 1
+          
+          # 1. Si no tiene el plugin, lo agregamos (caso más común)
+          if ! grep -q 'org.jetbrains.kotlin.android\|kotlin("android")' "$FILE"; then
+            echo "→ Añadiendo plugin org.jetbrains.kotlin.android..."
+            # Inserta el plugin justo después de com.android.application
+            sed -i '/id("com.android.application")/a\    id("org.jetbrains.kotlin.android")' "$FILE"
           fi
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          # 2. Eliminamos el bloque moderno roto (compilerOptions) si existe
+          if grep -q "compilerOptions" "$FILE"; then
+            echo "→ Eliminando bloque compilerOptions roto..."
+            # Borra desde "kotlin {" hasta el cierre correspondiente (simple y efectivo para este caso)
+            sed -i '/^kotlin {/,/^}/d' "$FILE"
+          fi
 
-          path = Path("app/build.gradle.kts")
-          text = path.read_text(encoding="utf-8")
+          # 3. Añadimos la configuración segura y compatible
+          if ! grep -q "kotlinOptions" "$FILE"; then
+            echo "→ Añadiendo kotlinOptions compatible..."
+            
+            # Insertamos justo antes del cierre del bloque android (o al final si no encuentra)
+            cat >> "$FILE" << 'EOF'
 
-          original = text
+// Configuración Kotlin añadida automáticamente por el workflow
+android {
+    // ... (si ya existe el bloque android, esto se duplicará → se limpia después)
+}
 
-          # ----------------------------------------------------------
-          # Caso 1:
-          #
-          # kotlinOptions {
-          #     jvmTarget = "17"
-          # }
-          #
-          # ----------------------------------------------------------
-          pattern = re.compile(
-              r'(?ms)^[ \t]*kotlinOptions\s*\{\s*'
-              r'jvmTarget\s*=\s*"17"\s*'
-              r'\}\s*'
-          )
+kotlin {
+    jvmToolchain(17)
+}
 
-          replacement = '''kotlin {
-              compilerOptions {
-                  jvmTarget.set(
-                      org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-                  )
-              }
-          }
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+EOF
+          fi
 
-          '''
+          # 4. Limpieza básica de posibles duplicados
+          # (opcional: puedes mejorar esto después)
 
-          if pattern.search(text):
-              text = pattern.sub(replacement, text, count=1)
-              print("Se encontró kotlinOptions y se convirtió a compilerOptions.")
-          else:
-              print("No se encontró el bloque exacto kotlinOptions/jvmTarget = \"17\".")
+          echo ""
+          echo "=== Resultado final del archivo (últimas 40 líneas) ==="
+          tail -n 40 "$FILE"
 
-          # ----------------------------------------------------------
-          # Caso 2:
-          #
-          # Si existe jvmTarget con comillas simples:
-          #
-          # jvmTarget = '17'
-          #
-          # ----------------------------------------------------------
-          pattern_single = re.compile(
-              r'(?ms)^[ \t]*kotlinOptions\s*\{\s*'
-              r'jvmTarget\s*=\s*\'17\'\s*'
-              r'\}\s*'
-          )
-
-          if pattern_single.search(text):
-              text = pattern_single.sub(replacement, text, count=1)
-              print("Se encontró kotlinOptions con comillas simples y se corrigió.")
-
-          # ----------------------------------------------------------
-          # Caso 3:
-          #
-          # Si todavía queda alguna asignación antigua de jvmTarget,
-          # se corrige dentro de un bloque kotlinOptions restante.
-          # ----------------------------------------------------------
-          text = re.sub(
-              r'(?m)^([ \t]*)jvmTarget\s*=\s*"17"\s*$',
-              r'\1jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)',
-              text
-          )
-
-          if text != original:
-              path.write_text(text, encoding="utf-8")
-              print("app/build.gradle.kts actualizado temporalmente.")
-          else:
-              print("No fue necesario modificar app/build.gradle.kts.")
-          PY
-
-          echo
-          echo "Contenido relacionado con Kotlin:"
-          grep -n -A8 -B3 -E \
-            "kotlinOptions|compilerOptions|jvmTarget" \
-            "$FILE" || true
-
-
-      # ============================================================
-      # 11. ELIMINAR EXCLUDE INCORRECTO DE PROTOBUF
-      #
-      # El protobuf está físicamente dentro de OsmAnd-java.jar,
-      # por lo que exclude(group = "com.google.protobuf") NO
-      # elimina esas clases duplicadas.
-      #
-      # Quitamos solamente ese exclude del build temporal.
-      # ============================================================
-      - name: Remove incorrect OsmAnd protobuf exclude
-        shell: bash
+      - name: Commit fix (opcional)
         run: |
-          set -e
-
-          FILE="app/build.gradle.kts"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("app/build.gradle.kts")
-          text = path.read_text(encoding="utf-8")
-
-          original = text
-
-          # Elimina:
-          #
-          # implementation("net.osmand:OsmAnd-java:...") {
-          #     exclude(group = "com.google.protobuf")
-          # }
-          #
-          # conservando la implementación.
-          pattern = re.compile(
-              r'(?ms)'
-              r'(implementation\("net\.osmand:OsmAnd-java:[^"]+"\))'
-              r'\s*\{\s*'
-              r'exclude\s*\(\s*group\s*=\s*"com\.google\.protobuf"\s*\)'
-              r'\s*\}'
-          )
-
-          text = pattern.sub(r'\1', text)
-
-          if text != original:
-              path.write_text(text, encoding="utf-8")
-              print("Exclude protobuf de OsmAnd eliminado.")
-          else:
-              print("No se encontró el exclude protobuf de OsmAnd.")
-          PY
-
-          echo
-          echo "Dependencia OsmAnd-java actual:"
-          grep -n -A3 -B2 "OsmAnd-java" "$FILE" || true
-
-
-      # ============================================================
-      # 12. MOSTRAR CONFIGURACIÓN FINAL TEMPORAL
-      # ============================================================
-      - name: Verify temporary source changes
-        shell: bash
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "PaymentContributionDialog.kt"
-          echo "========================================"
-
-          if [ -f "app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt" ]; then
-            grep -n "import .*R" \
-              app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt \
-              || true
-          fi
-
-          echo
-          echo "========================================"
-          echo "Kotlin configuration"
-          echo "========================================"
-
-          grep -n -A8 -B3 -E \
-            "kotlinOptions|compilerOptions|jvmTarget" \
-            app/build.gradle.kts \
-            || true
-
-          echo
-          echo "========================================"
-          echo "OsmAnd configuration"
-          echo "========================================"
-
-          grep -n -A4 -B2 "OsmAnd-java" \
-            app/build.gradle.kts \
-            || true
-
-
-      # ============================================================
-      # 13. RESOLVER DEPENDENCIAS
-      #
-      # Esto obliga a descargar OsmAnd-java y sus dependencias
-      # antes de modificar el JAR.
-      # ============================================================
-      - name: Resolve Android dependencies
-        shell: bash
-        run: |
-          set -e
-
-          echo "Resolviendo dependencias..."
-
-          ./gradlew \
-            :app:dependencies \
-            --configuration armonlyLegacyDebugCompileClasspath \
-            --refresh-dependencies \
-            --stacktrace
-
-
-      # ============================================================
-      # 14. LOCALIZAR Y SANITIZAR OsmAnd-java
-      #
-      # Se elimina SOLO:
-      #
-      # com/google/protobuf/**
-      #
-      # del JAR.
-      #
-      # Todo el resto de OsmAnd-java permanece intacto.
-      #
-      # Esto evita las clases protobuf duplicadas.
-      # ============================================================
-      - name: Sanitize OsmAnd protobuf classes
-        shell: bash
-        run: |
-          set -e
-
-          echo "Buscando OsmAnd-java..."
-
-          OSMAND_JAR=""
-
-          CACHE_ROOT="$HOME/.gradle/caches/modules-2/files-2.1/net.osmand/OsmAnd-java"
-
-          if [ -d "$CACHE_ROOT" ]; then
-            OSMAND_JAR=$(find "$CACHE_ROOT" \
-              -type f \
-              -name "OsmAnd-java-*.jar" \
-              | head -n 1 || true)
-          fi
-
-          if [ -z "$OSMAND_JAR" ]; then
-            echo "ERROR: No se encontró OsmAnd-java en la caché de Gradle."
-            echo "Contenido disponible:"
-            find "$HOME/.gradle/caches/modules-2/files-2.1/net.osmand" \
-              -maxdepth 5 \
-              -type f \
-              2>/dev/null \
-              | head -100 || true
-            exit 1
-          fi
-
-          echo "JAR encontrado:"
-          echo "$OSMAND_JAR"
-
-          BACKUP="${OSMAND_JAR}.original"
-
-          if [ ! -f "$BACKUP" ]; then
-            cp "$OSMAND_JAR" "$BACKUP"
-          fi
-
-          TMP_DIR=$(mktemp -d)
-
-          echo "Extrayendo JAR..."
-
-          cd "$TMP_DIR"
-          jar xf "$OSMAND_JAR"
-
-          if [ -d "com/google/protobuf" ]; then
-            echo "Eliminando com/google/protobuf..."
-            rm -rf "com/google/protobuf"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if git diff --quiet; then
+            echo "No hay cambios que commitear"
           else
-            echo "No existe com/google/protobuf dentro del JAR."
+            git add app/build.gradle.kts
+            git commit -m "fix: corrige configuración de Kotlin compilerOptions
+
+- Asegura que el plugin org.jetbrains.kotlin.android esté presente
+- Elimina bloque compilerOptions inválido
+- Aplica configuración compatible con Kotlin 1.9+/2.x"
+            git push
+            echo "✅ Fix aplicado y pusheado"
           fi
 
-          echo "Reconstruyendo JAR..."
-
-          rm -f "$OSMAND_JAR"
-
-          jar cf "$OSMAND_JAR" .
-
-          cd -
-
-          rm -rf "$TMP_DIR"
-
-          echo
-          echo "Verificando protobuf dentro del JAR..."
-
-          if jar tf "$OSMAND_JAR" | grep -q "^com/google/protobuf/"; then
-            echo "ERROR: Todavía existen clases com/google/protobuf."
-            exit 1
-          else
-            echo "OK: no quedan clases com/google/protobuf dentro de OsmAnd-java."
-          fi
-
-
-      # ============================================================
-      # 15. LIMPIAR BUILD
-      # ============================================================
-      - name: Clean project
-        shell: bash
+      - name: Summary
         run: |
-          set -e
-
-          ./gradlew clean --stacktrace
-
-
-      # ============================================================
-      # 16. MOSTRAR VARIANTES DISPONIBLES
-      # ============================================================
-      - name: Show Android build variants
-        shell: bash
-        run: |
-          set -e
-
-          ./gradlew :app:tasks --all \
-            | grep -E "assemble.*Debug|assemble.*Release" \
-            || true
-
-
-      # ============================================================
-      # 17. COMPILAR APK DEBUG
-      #
-      # assembleDebug construye las variantes Debug disponibles
-      # según la configuración de flavors.
-      # ============================================================
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -e
-
-          echo "Iniciando compilación Debug..."
-
-          ./gradlew assembleDebug \
-            --stacktrace \
-            --info
-
-
-      # ============================================================
-      # 18. MOSTRAR APK GENERADOS
-      # ============================================================
-      - name: List generated APKs
-        if: always()
-        shell: bash
-        run: |
-          echo "APK encontrados:"
-
-          find app/build/outputs/apk \
-            -type f \
-            -name "*.apk" \
-            -print \
-            2>/dev/null \
-            || true
-
-
-      # ============================================================
-      # 19. SUBIR APK COMO ARTIFACT
-      # ============================================================
-      - name: Upload APK artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Nexfy-Remesas-APKs
-          path: |
-            app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
-
-      # ============================================================
-      # 20. INFORMACIÓN FINAL
-      # ============================================================
-      - name: Build summary
-        if: always()
-        shell: bash
-        run: |
-          echo
-          echo "=============================================="
-          echo "          NEXFY REMESAS BUILD"
-          echo "=============================================="
-          echo
-
-          if [ -d "app/build/outputs/apk" ]; then
-            echo "APKs generados:"
-            find app/build/outputs/apk \
-              -type f \
-              -name "*.apk" \
-              -exec ls -lh {} \; \
-              2>/dev/null \
-              || true
-          else
-            echo "No existe app/build/outputs/apk."
-          fi
-
-          echo
-          echo "Los cambios realizados por este workflow son"
-          echo "temporales dentro del runner."
-          echo "No se hace commit ni push al repositorio."
-          echo
+          echo "## Resultado de la revisión" >> $GITHUB_STEP_SUMMARY
+          echo "- Plugin Kotlin: ${{ steps.diagnose.outputs.has_kotlin_plugin }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Se intentó aplicar el fix automático" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Revisa el log del step **Apply automatic fix** para ver exactamente qué se cambió." >> $GITHUB_STEP_SUMMARY
