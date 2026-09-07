@@ -11,49 +11,37 @@ permissions:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Debug APK
     runs-on: ubuntu-latest
-
-    env:
-      ANDROID_BUILD_TOOLS: "36.0.0"
-      ANDROID_NDK_VERSION: "27.0.12077973"
-      ANDROID_CMAKE_VERSION: "3.22.1"
 
     steps:
 
       # ============================================================
-      # 1. DESCARGAR EL PROYECTO
+      # CHECKOUT
       # ============================================================
       - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
+        uses: actions/checkout@v4
 
       # ============================================================
-      # 2. JAVA 17
+      # JAVA 17
       # ============================================================
-      - name: Setup JDK 17
-        uses: actions/setup-java@v5
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
           cache: gradle
 
-
       # ============================================================
-      # 3. ANDROID SDK
+      # ANDROID SDK
       # ============================================================
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-
       # ============================================================
-      # 4. INSTALAR COMPONENTES ANDROID
+      # INSTALL REQUIRED ANDROID COMPONENTS
       # ============================================================
       - name: Install Android SDK components
-        shell: bash
         run: |
           set -e
 
@@ -62,169 +50,38 @@ jobs:
           sdkmanager \
             "platform-tools" \
             "platforms;android-36" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "cmake;${ANDROID_CMAKE_VERSION}" \
-            "ndk;${ANDROID_NDK_VERSION}"
-
+            "build-tools;36.0.0" \
+            "cmake;3.22.1" \
+            "ndk;27.0.12077973"
 
       # ============================================================
-      # 5. CONFIGURAR ANDROID SDK
+      # FIX GRADLE WRAPPER PERMISSIONS
       # ============================================================
-      - name: Configure Android SDK
-        shell: bash
+      - name: Fix Gradle wrapper permissions
         run: |
           set -e
 
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "=========================================="
+          echo "GRADLE WRAPPER"
+          echo "=========================================="
 
-          echo "Android SDK configurado:"
-          cat local.properties
-
-
-      # ============================================================
-      # 6. NO SOBRESCRIBIR GRADLE.PROPERTIES
-      #
-      # Solamente añade la propiedad si no existe.
-      # ============================================================
-      - name: Configure Gradle compatibility
-        shell: bash
-        run: |
-          set -e
-
-          touch gradle.properties
-
-          if ! grep -q "^android.disallowKotlinSourceSets=" gradle.properties; then
-            echo "android.disallowKotlinSourceSets=false" >> gradle.properties
+          if [ ! -f "./gradlew" ]; then
+            echo "ERROR: gradlew no existe."
+            exit 1
           fi
 
-          echo "gradle.properties:"
-          cat gradle.properties
+          chmod +x ./gradlew
 
+          ls -l ./gradlew
 
-      # ============================================================
-      # 7. CORREGIR IMPORT R
-      # ============================================================
-      - name: Fix incorrect R import
-        shell: bash
-        run: |
-          set -e
+          test -x ./gradlew
 
-          FILE="app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt"
-
-          if [ -f "$FILE" ]; then
-
-            python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path(
-              "app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt"
-          )
-
-          text = path.read_text(encoding="utf-8")
-
-          old = "import com.example.R"
-          new = "import com.aistudio.nexfyremesas.app.R"
-
-          if old in text:
-              text = text.replace(old, new)
-              path.write_text(text, encoding="utf-8")
-              print("OK: import com.example.R corregido.")
-          else:
-              print("No se encontró import com.example.R.")
-          PY
-
-          else
-            echo "El archivo no existe. Se continúa."
-          fi
-
+          echo "Gradle wrapper listo para ejecutarse."
 
       # ============================================================
-      # 8. VERIFICAR KOTLIN
-      #
-      # IMPORTANTE:
-      # NO modificar kotlinOptions.
-      # NO crear kotlin { compilerOptions { ... } }.
-      #
-      # La configuración debe estar en app/build.gradle.kts.
+      # JAVA CHECK
       # ============================================================
-      - name: Verify Kotlin configuration
-        shell: bash
-        run: |
-          set -e
-
-          echo "=========================================="
-          echo "KOTLIN VERSION"
-          echo "=========================================="
-
-          grep -n \
-            'kotlin = ' \
-            gradle/libs.versions.toml \
-            || true
-
-          echo
-          echo "=========================================="
-          echo "KOTLIN CONFIGURATION"
-          echo "=========================================="
-
-          grep -n -A12 -B5 \
-            -E "kotlinOptions|compilerOptions|jvmTarget" \
-            app/build.gradle.kts \
-            || true
-
-
-      # ============================================================
-      # 9. ELIMINAR EXCLUDE INCORRECTO DE OSMAND
-      # ============================================================
-      - name: Remove incorrect OsmAnd protobuf exclude
-        shell: bash
-        run: |
-          set -e
-
-          FILE="app/build.gradle.kts"
-
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("app/build.gradle.kts")
-
-          if not path.exists():
-              raise SystemExit("ERROR: app/build.gradle.kts no existe.")
-
-          text = path.read_text(encoding="utf-8")
-
-          original = text
-
-          pattern = re.compile(
-              r'(?ms)'
-              r'(implementation\("net\.osmand:OsmAnd-java:[^"]+"\))'
-              r'\s*\{\s*'
-              r'exclude\s*\(\s*group\s*=\s*"com\.google\.protobuf"\s*\)'
-              r'\s*\}'
-          )
-
-          text = pattern.sub(r'\1', text)
-
-          if text != original:
-              path.write_text(text, encoding="utf-8")
-              print("OK: exclude protobuf de OsmAnd eliminado.")
-          else:
-              print("No se encontró exclude protobuf de OsmAnd.")
-          PY
-
-          echo
-          echo "OsmAnd:"
-          grep -n -A5 -B3 \
-            "OsmAnd-java" \
-            "$FILE" \
-            || true
-
-
-      # ============================================================
-      # 10. MOSTRAR VERSIONES DEL ENTORNO
-      # ============================================================
-      - name: Show build environment
-        shell: bash
+      - name: Check Java
         run: |
           set -e
 
@@ -234,32 +91,81 @@ jobs:
 
           java -version
 
-          echo
+      # ============================================================
+      # GRADLE CHECK
+      # ============================================================
+      - name: Check Gradle
+        run: |
+          set -e
+
           echo "=========================================="
           echo "GRADLE"
           echo "=========================================="
 
           ./gradlew --version
 
-          echo
-          echo "=========================================="
-          echo "ANDROID SDK"
-          echo "=========================================="
-
-          sdkmanager --list_installed | grep -E \
-            "platforms;android-36|build-tools;36.0.0|ndk;27.0.12077973|cmake;3.22.1" \
-            || true
-
-
       # ============================================================
-      # 11. RESOLVER DEPENDENCIAS
+      # GRADLE PROPERTIES
       # ============================================================
-      - name: Resolve Android dependencies
-        shell: bash
+      - name: Configure Gradle properties
         run: |
           set -e
 
-          echo "Resolviendo dependencias..."
+          touch gradle.properties
+
+          if ! grep -q "^android.disallowKotlinSourceSets=" gradle.properties; then
+            echo "android.disallowKotlinSourceSets=false" >> gradle.properties
+          fi
+
+          echo "=========================================="
+          echo "gradle.properties"
+          echo "=========================================="
+
+          cat gradle.properties
+
+      # ============================================================
+      # TEMPORARY R IMPORT FIX
+      # ============================================================
+      - name: Fix PaymentContributionDialog R import
+        run: |
+          set -e
+
+          FILE="app/src/main/java/com/example/ui/components/PaymentContributionDialog.kt"
+
+          if [ -f "$FILE" ]; then
+
+            sed -i \
+              's/import com\.example\.R/import com.aistudio.nexfyremesas.app.R/' \
+              "$FILE"
+
+            echo "Archivo corregido:"
+            echo "$FILE"
+
+            grep -n "import .*R" "$FILE" || true
+
+          else
+            echo "PaymentContributionDialog.kt no encontrado."
+          fi
+
+      # ============================================================
+      # PREPARE GRADLE
+      # ============================================================
+      - name: Prepare Gradle
+        run: |
+          set -e
+
+          chmod +x ./gradlew
+
+          ./gradlew --stop || true
+
+      # ============================================================
+      # RESOLVE DEPENDENCIES
+      # ============================================================
+      - name: Resolve dependencies
+        run: |
+          set -e
+
+          chmod +x ./gradlew
 
           ./gradlew \
             :app:dependencies \
@@ -267,199 +173,134 @@ jobs:
             --refresh-dependencies \
             --stacktrace
 
-
       # ============================================================
-      # 12. SANITIZAR OSMAND
+      # OSMAND PROTOBUF SANITIZER
       # ============================================================
       - name: Sanitize OsmAnd protobuf classes
-        shell: bash
         run: |
           set -e
 
-          echo "Buscando OsmAnd-java..."
+          echo "=========================================="
+          echo "OSMAND PROTOBUF SANITIZER"
+          echo "=========================================="
 
-          OSMAND_JAR=""
+          find ~/.gradle/caches/modules-2/files-2.1/net.osmand/OsmAnd-java \
+            -type f \
+            -name "*.jar" \
+            -print 2>/dev/null || true
 
-          CACHE_ROOT="$HOME/.gradle/caches/modules-2/files-2.1/net.osmand/OsmAnd-java"
+          JARS=$(find ~/.gradle/caches/modules-2/files-2.1/net.osmand/OsmAnd-java \
+            -type f \
+            -name "*.jar" \
+            2>/dev/null || true)
 
-          if [ -d "$CACHE_ROOT" ]; then
-            OSMAND_JAR=$(find "$CACHE_ROOT" \
-              -type f \
-              -name "OsmAnd-java-*.jar" \
-              | head -n 1 || true)
-          fi
+          if [ -n "$JARS" ]; then
 
-          if [ -z "$OSMAND_JAR" ]; then
-            echo "ERROR: No se encontró OsmAnd-java."
+            while IFS= read -r JAR; do
 
-            find \
-              "$HOME/.gradle/caches/modules-2/files-2.1/net.osmand" \
-              -maxdepth 6 \
-              -type f \
-              2>/dev/null \
-              | head -100 || true
+              if [ -f "$JAR" ]; then
 
-            exit 1
-          fi
+                echo ""
+                echo "Procesando:"
+                echo "$JAR"
 
-          echo "JAR encontrado:"
-          echo "$OSMAND_JAR"
+                TMP="${JAR}.tmp"
 
-          BACKUP="${OSMAND_JAR}.original"
+                rm -rf "$TMP"
 
-          if [ ! -f "$BACKUP" ]; then
-            cp "$OSMAND_JAR" "$BACKUP"
-          fi
+                mkdir -p "$TMP"
 
-          TMP_DIR=$(mktemp -d)
+                (
+                  cd "$TMP"
 
-          echo "Extrayendo OsmAnd-java..."
+                  jar xf "$JAR"
 
-          cd "$TMP_DIR"
+                  if [ -d "com/google/protobuf" ]; then
+                    echo "Eliminando com/google/protobuf..."
+                    rm -rf "com/google/protobuf"
+                  fi
 
-          jar xf "$OSMAND_JAR"
+                  jar cf "$JAR.new" .
+                )
 
-          if [ -d "com/google/protobuf" ]; then
-            echo "Eliminando clases protobuf..."
+                if [ -f "$TMP/$JAR.new" ]; then
+                  mv "$TMP/$JAR.new" "$JAR"
+                fi
 
-            rm -rf "com/google/protobuf"
-          else
-            echo "No existe com/google/protobuf."
-          fi
+                rm -rf "$TMP"
 
-          echo "Reconstruyendo JAR..."
+              fi
 
-          rm -f "$OSMAND_JAR"
-
-          jar cf "$OSMAND_JAR" .
-
-          cd -
-
-          rm -rf "$TMP_DIR"
-
-          echo
-          echo "Verificando OsmAnd-java..."
-
-          if jar tf "$OSMAND_JAR" \
-              | grep -q "^com/google/protobuf/"; then
-
-            echo "ERROR: todavía existen clases protobuf."
-            exit 1
+            done <<< "$JARS"
 
           else
-
-            echo "OK: no quedan clases protobuf dentro de OsmAnd-java."
-
+            echo "No se encontraron JARs de OsmAnd-java."
           fi
-
 
       # ============================================================
-      # 13. LIMPIAR PROYECTO
+      # CLEAN
       # ============================================================
       - name: Clean project
-        shell: bash
         run: |
           set -e
+
+          chmod +x ./gradlew
 
           ./gradlew clean --stacktrace
 
-
       # ============================================================
-      # 14. MOSTRAR VARIANTES
+      # LIST GRADLE TASKS
       # ============================================================
-      - name: Show Android build variants
-        shell: bash
+      - name: Check Gradle tasks
         run: |
           set -e
 
-          ./gradlew :app:tasks --all \
-            | grep -E \
-              "assemble.*Debug|assemble.*Release" \
-            || true
+          chmod +x ./gradlew
 
+          ./gradlew :app:tasks --all --stacktrace
 
       # ============================================================
-      # 15. COMPILAR APK DEBUG
+      # BUILD DEBUG APK
       # ============================================================
       - name: Build Debug APK
-        shell: bash
         run: |
           set -e
 
+          chmod +x ./gradlew
+
           echo "=========================================="
-          echo "COMPILANDO NEXFY REMESAS"
+          echo "BUILD DEBUG APK"
           echo "=========================================="
 
-          ./gradlew assembleDebug \
+          ./gradlew \
+            assembleDebug \
             --stacktrace \
-            --info
-
+            --info \
+            --no-daemon
 
       # ============================================================
-      # 16. BUSCAR APK
+      # SHOW APK
       # ============================================================
-      - name: List generated APKs
+      - name: Find generated APK
         if: always()
-        shell: bash
         run: |
           echo "=========================================="
-          echo "APK ENCONTRADOS"
+          echo "GENERATED APK FILES"
           echo "=========================================="
 
           find app/build/outputs/apk \
             -type f \
             -name "*.apk" \
-            -print \
-            2>/dev/null \
-            || true
-
+            -print 2>/dev/null || true
 
       # ============================================================
-      # 17. SUBIR APK
+      # UPLOAD APK
       # ============================================================
-      - name: Upload APK artifacts
+      - name: Upload Debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Nexfy-Remesas-APKs
-          path: |
-            app/build/outputs/apk/**/*.apk
+          name: Nexfy-Remesas-debug
+          path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 14
-
-
-      # ============================================================
-      # 18. RESUMEN FINAL
-      # ============================================================
-      - name: Build summary
-        if: always()
-        shell: bash
-        run: |
-          echo
-          echo "=============================================="
-          echo "          NEXFY REMESAS BUILD"
-          echo "=============================================="
-          echo
-
-          if [ -d "app/build/outputs/apk" ]; then
-
-            echo "APKs generados:"
-
-            find app/build/outputs/apk \
-              -type f \
-              -name "*.apk" \
-              -exec ls -lh {} \; \
-              2>/dev/null \
-              || true
-
-          else
-
-            echo "No existe app/build/outputs/apk."
-
-          fi
-
-          echo
-          echo "Los cambios realizados por este workflow"
-          echo "son temporales dentro del runner."
-          echo "No se realiza commit ni push."
-          echo
